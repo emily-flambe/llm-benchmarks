@@ -24,6 +24,9 @@ import {
 type Bindings = {
   DB: D1Database;
   ADMIN_API_KEY: string;
+  GITHUB_TOKEN: string;
+  CF_ACCESS_TEAM_DOMAIN: string; // e.g., "emilycogsdill" for emilycogsdill.cloudflareaccess.com
+  CF_ACCESS_AUD: string; // Application Audience (AUD) tag from Access
   ASSETS: Fetcher;
 };
 
@@ -53,7 +56,7 @@ function checkRateLimit(key: string, limit: number, windowMs: number): boolean {
   return true;
 }
 
-// Auth middleware for admin endpoints
+// Auth middleware for admin endpoints - supports API key OR Cloudflare Access
 function verifyAdminAuth(
   authHeader: string | undefined,
   apiKey: string
@@ -62,6 +65,90 @@ function verifyAdminAuth(
   const [scheme, token] = authHeader.split(" ");
   if (scheme !== "Bearer" || !token) return false;
   return token === apiKey;
+}
+
+// Verify Cloudflare Access JWT
+async function verifyAccessJwt(
+  jwt: string | undefined,
+  teamDomain: string | undefined,
+  aud: string | undefined
+): Promise<{ valid: boolean; email?: string }> {
+  if (!jwt || !teamDomain || !aud) {
+    return { valid: false };
+  }
+
+  try {
+    // Fetch the public keys from Cloudflare Access
+    const certsUrl = `https://${teamDomain}.cloudflareaccess.com/cdn-cgi/access/certs`;
+    const certsResponse = await fetch(certsUrl);
+    if (!certsResponse.ok) {
+      console.error("Failed to fetch Access certs");
+      return { valid: false };
+    }
+
+    const certs = await certsResponse.json<{ keys: JsonWebKey[] }>();
+
+    // Decode the JWT header to get the key ID
+    const [headerB64] = jwt.split(".");
+    const header = JSON.parse(atob(headerB64.replace(/-/g, "+").replace(/_/g, "/")));
+    const kid = header.kid;
+
+    // Find the matching key
+    const key = certs.keys.find((k: JsonWebKey & { kid?: string }) => k.kid === kid);
+    if (!key) {
+      console.error("No matching key found for JWT");
+      return { valid: false };
+    }
+
+    // Import the key
+    const cryptoKey = await crypto.subtle.importKey(
+      "jwk",
+      key,
+      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+      false,
+      ["verify"]
+    );
+
+    // Verify the signature
+    const [, payloadB64, signatureB64] = jwt.split(".");
+    const signatureInput = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
+    const signature = Uint8Array.from(
+      atob(signatureB64.replace(/-/g, "+").replace(/_/g, "/")),
+      (c) => c.charCodeAt(0)
+    );
+
+    const valid = await crypto.subtle.verify(
+      "RSASSA-PKCS1-v1_5",
+      cryptoKey,
+      signature,
+      signatureInput
+    );
+
+    if (!valid) {
+      return { valid: false };
+    }
+
+    // Decode and validate the payload
+    const payload = JSON.parse(atob(payloadB64.replace(/-/g, "+").replace(/_/g, "/")));
+
+    // Check audience
+    if (payload.aud && !payload.aud.includes(aud)) {
+      console.error("JWT audience mismatch");
+      return { valid: false };
+    }
+
+    // Check expiration
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.exp && payload.exp < now) {
+      console.error("JWT expired");
+      return { valid: false };
+    }
+
+    return { valid: true, email: payload.email };
+  } catch (error) {
+    console.error("JWT verification error:", error);
+    return { valid: false };
+  }
 }
 
 // ============================================================================
@@ -79,6 +166,24 @@ app.get("/api/health", async (c) => {
       503
     );
   }
+});
+
+/**
+ * GET /api/auth/status - Check if user is authenticated via Cloudflare Access
+ */
+app.get("/api/auth/status", async (c) => {
+  const accessJwt = c.req.header("Cf-Access-Jwt-Assertion");
+  const accessResult = await verifyAccessJwt(
+    accessJwt,
+    c.env.CF_ACCESS_TEAM_DOMAIN,
+    c.env.CF_ACCESS_AUD
+  );
+
+  return c.json({
+    authenticated: accessResult.valid,
+    email: accessResult.email || null,
+    method: accessResult.valid ? "cloudflare_access" : null,
+  });
 });
 
 // ============================================================================
@@ -213,8 +318,12 @@ app.get("/api/trends", async (c) => {
  * }
  */
 app.post("/api/results", async (c) => {
-  // Auth check
-  if (!verifyAdminAuth(c.req.header("Authorization"), c.env.ADMIN_API_KEY)) {
+  // Auth check - accept API key OR Cloudflare Access JWT
+  const apiKeyValid = verifyAdminAuth(c.req.header("Authorization"), c.env.ADMIN_API_KEY);
+  const accessJwt = c.req.header("Cf-Access-Jwt-Assertion");
+  const accessResult = await verifyAccessJwt(accessJwt, c.env.CF_ACCESS_TEAM_DOMAIN, c.env.CF_ACCESS_AUD);
+
+  if (!apiKeyValid && !accessResult.valid) {
     return c.json({ error: "Unauthorized" }, 401);
   }
 
@@ -346,6 +455,82 @@ app.post("/api/results", async (c) => {
     }
 
     return c.json({ error: "Failed to create run" }, 500);
+  }
+});
+
+/**
+ * POST /api/admin/trigger-benchmark - Trigger a benchmark run via GitHub Actions
+ *
+ * Expected body:
+ * {
+ *   model?: string,       // Model to benchmark (default: claude-opus-4-5-20251101)
+ *   sample_size?: string  // Number of problems (default: 100)
+ * }
+ */
+app.post("/api/admin/trigger-benchmark", async (c) => {
+  // Auth check - accept API key OR Cloudflare Access JWT
+  const apiKeyValid = verifyAdminAuth(c.req.header("Authorization"), c.env.ADMIN_API_KEY);
+  const accessJwt = c.req.header("Cf-Access-Jwt-Assertion");
+  const accessResult = await verifyAccessJwt(accessJwt, c.env.CF_ACCESS_TEAM_DOMAIN, c.env.CF_ACCESS_AUD);
+
+  if (!apiKeyValid && !accessResult.valid) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  // Rate limit check (5 triggers per hour per client IP)
+  const clientIP = c.req.header("CF-Connecting-IP") || c.req.header("X-Forwarded-For") || "unknown";
+  if (!checkRateLimit(`trigger:${clientIP}`, 5, 3600000)) {
+    return c.json({ error: "Rate limit exceeded. Max 5 triggers per hour." }, 429);
+  }
+
+  try {
+    const body = await c.req.json<{
+      model?: string;
+      sample_size?: string;
+    }>().catch(() => ({}));
+
+    const model = body.model || "claude-opus-4-5-20251101";
+    const sampleSize = body.sample_size || "100";
+
+    // Trigger GitHub Actions workflow via API
+    const response = await fetch(
+      "https://api.github.com/repos/emily-flambe/llm-benchmarks/actions/workflows/benchmark.yml/dispatches",
+      {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${c.env.GITHUB_TOKEN}`,
+          "Accept": "application/vnd.github.v3+json",
+          "User-Agent": "llm-benchmarks-worker",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          ref: "main",
+          inputs: {
+            model,
+            sample_size: sampleSize,
+          },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("GitHub API error:", response.status, errorText);
+      return c.json(
+        { error: `Failed to trigger workflow: ${response.status}` },
+        500
+      );
+    }
+
+    return c.json({
+      success: true,
+      message: `Benchmark triggered for ${model} with sample size ${sampleSize}`,
+      model,
+      sample_size: sampleSize,
+    });
+  } catch (error) {
+    console.error("Error triggering benchmark:", error);
+    return c.json({ error: "Failed to trigger benchmark" }, 500);
   }
 });
 

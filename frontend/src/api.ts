@@ -36,3 +36,54 @@ export async function getTrends(): Promise<TrendsResponse> {
 export async function getModels(): Promise<ModelsResponse> {
   return fetchJson<ModelsResponse>('/models');
 }
+
+export interface AuthStatus {
+  authenticated: boolean;
+  email: string | null;
+  method: 'cloudflare_access' | null;
+}
+
+export async function getAuthStatus(): Promise<AuthStatus> {
+  return fetchJson<AuthStatus>('/auth/status');
+}
+
+export interface TriggerBenchmarkParams {
+  model?: string;
+  sample_size?: string;
+}
+
+export interface TriggerBenchmarkResponse {
+  success: boolean;
+  message: string;
+  model: string;
+  sample_size: string;
+}
+
+export async function triggerBenchmark(
+  apiKey: string | null,
+  params: TriggerBenchmarkParams = {}
+): Promise<TriggerBenchmarkResponse> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  // Only add Authorization header if API key is provided
+  // (Cloudflare Access JWT is automatically included by the browser)
+  if (apiKey) {
+    headers['Authorization'] = `Bearer ${apiKey}`;
+  }
+
+  const response = await fetch(`${API_BASE}/admin/trigger-benchmark`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(params),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || `HTTP ${response.status}`);
+  }
+
+  return data;
+}

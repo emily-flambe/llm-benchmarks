@@ -31,6 +31,14 @@ MODEL_PRICING = {
     "o3": {"input": 2.00, "output": 8.00},
 }
 
+# Map API model names to database IDs
+MODEL_ID_MAP = {
+    "claude-opus-4-5-20251101": "claude-opus-4-5",
+    "claude-sonnet-4-20250514": "claude-sonnet-4",
+    "gpt-4.1": "gpt-4-1",
+    "o3": "o3",
+}
+
 FIXED_RANDOM_SEED = 42
 CODE_EXECUTION_TIMEOUT = 30  # seconds
 
@@ -392,7 +400,7 @@ def main():
 
     # Build output - field names must match API expectations
     benchmark_results = BenchmarkResults(
-        model_id=args.model,  # API expects model_id
+        model_id=MODEL_ID_MAP.get(args.model, args.model),  # Map to DB model ID
         run_date=datetime.now(timezone.utc).isoformat(),  # API expects run_date with full ISO format
         sample_size=total_count,  # API expects sample_size
         score=score,

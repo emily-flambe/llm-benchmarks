@@ -6,6 +6,7 @@ import TrendChart from './components/TrendChart';
 import RunsTable from './components/RunsTable';
 import CostSummary from './components/CostSummary';
 import RunDetails from './components/RunDetails';
+import AdminPanel from './components/AdminPanel';
 
 export default function App() {
   const [runs, setRuns] = useState<BenchmarkRun[]>([]);
@@ -85,6 +86,7 @@ export default function App() {
       </main>
 
       {selectedRun && <RunDetails run={selectedRun} onClose={() => setSelectedRun(null)} />}
+      <AdminPanel />
     </>
   );
 }
