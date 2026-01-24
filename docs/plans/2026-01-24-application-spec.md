@@ -123,11 +123,12 @@ POST /api/admin/run
 
 ### Future Additions
 
-| Benchmark | Size | Notes |
-|-----------|------|-------|
-| HumanEval+ | 164 | Classic code benchmark, enhanced tests |
-| SWE-bench Verified | 500 | Real GitHub issues (expensive) |
-| BigCodeBench | 1,140 | Multi-library coding tasks |
+| Benchmark | Size | Cost | Notes |
+|-----------|------|------|-------|
+| **IFEval** | 500 | ~$5 | Instruction following (objective scoring, no LLM judge) |
+| HumanEval+ | 164 | ~$2 | Classic code benchmark, enhanced tests |
+| SWE-bench Verified | 500 | ~$50+ | Real GitHub issues (expensive) |
+| BigCodeBench | 1,140 | ~$15-20 | Multi-library coding tasks |
 
 ## Data Model
 
