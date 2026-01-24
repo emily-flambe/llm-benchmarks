@@ -73,29 +73,74 @@ A Cloudflare Workers application that runs standardized LLM benchmarks daily acr
 
 **6 models evaluated daily** - costs tracked per-run for visibility
 
-## Benchmarks to Run
+## Evaluation Framework
 
-### Daily Core Benchmarks
+### EleutherAI lm-evaluation-harness
 
-| Benchmark | Size | Est. Time | Rationale |
-|-----------|------|-----------|-----------|
-| GPQA Diamond | 198 | 5-10 min | PhD-level, highly differentiating |
-| IFEval | 500 | 10-15 min | Objective instruction following |
-| GSM8K (sample) | 500 | 15-20 min | Math reasoning |
-| HumanEval | 164 | 10-15 min | Code generation |
-| TruthfulQA MC1 | 817 | 10-15 min | Truthfulness |
+Primary framework for running benchmarks. Industry standard, powers Hugging Face leaderboard.
 
-**Total questions per model**: ~2,179
-**Estimated time per model**: 50-75 minutes
-**Estimated cost per model**: ~$8-12
+```bash
+pip install lm-eval
+pip install "lm_eval[api]"  # For API provider support
+```
 
-### Weekly Extended
+**API Provider Support**:
+- `openai-chat-completions` - OpenAI models
+- `anthropic-chat-completions` - Claude models
+- Custom providers for Google/xAI (may need implementation)
 
-| Benchmark | Size | Rationale |
-|-----------|------|-----------|
-| MMLU-Pro (sample) | 2,000 | Comprehensive knowledge |
-| SimpleQA | 4,326 | Factual accuracy |
-| LiveBench | ~1,000 | Contamination-resistant |
+**Usage Pattern**:
+```bash
+export OPENAI_API_KEY=...
+lm_eval --model openai-chat-completions \
+        --model_args model=gpt-4.1 \
+        --tasks mmlu_pro \
+        --output_path results/
+```
+
+### Integration Approach
+
+Two options for Cloudflare Workers integration:
+
+1. **Subprocess approach**: Run lm-eval as CLI from worker (requires compute beyond Workers)
+2. **Dataset-only approach**: Use lm-eval datasets but implement evaluation loop in TypeScript
+
+Recommendation: **Dataset-only approach** - fetch questions from lm-eval datasets, run prompts via our LLM provider layer, score results ourselves. This keeps everything in Cloudflare Workers.
+
+## Benchmarks (Priority Order)
+
+### 1. MMLU-Pro (Primary)
+
+- **What**: Enhanced MMLU with harder reasoning, 10 choices per question
+- **Size**: 12,032 questions across 14 subjects
+- **Access**: [Hugging Face](https://huggingface.co/datasets/TIGER-Lab/MMLU-Pro)
+- **lm-eval task**: `mmlu_pro`
+- **Scoring**: Accuracy (exact match on answer letter)
+- **Why first**: Comprehensive knowledge benchmark, harder than saturated MMLU
+
+### 2. SimpleQA
+
+- **What**: Short-form factual questions (adversarially selected)
+- **Size**: 4,326 questions
+- **Access**: [OpenAI simple-evals](https://github.com/openai/simple-evals)
+- **Scoring**: correct / incorrect / not_attempted
+- **Why second**: Tests factual accuracy, designed to be challenging
+
+### 3. LiveBench
+
+- **What**: Contamination-resistant benchmark with monthly updates
+- **Size**: ~1,000 questions across math, coding, reasoning, data analysis
+- **Access**: [GitHub](https://github.com/LiveBench/LiveBench)
+- **Scoring**: Varies by category
+- **Why third**: Fresh questions prevent training contamination
+
+### Future Additions
+
+| Benchmark | Size | Notes |
+|-----------|------|-------|
+| GPQA Diamond | 198 | PhD-level, small but hard |
+| IFEval | 500 | Objective instruction following |
+| HumanEval | 164 | Code generation |
 
 ## Data Model
 
@@ -208,24 +253,93 @@ PUT  /api/admin/models/:id             # Update model config
 PUT  /api/admin/benchmarks/:id         # Update benchmark config
 ```
 
-## Scheduled Jobs
+## Orchestration & Scheduling
 
-### Daily (6:00 AM UTC)
+### The Challenge
 
-1. Check which benchmarks are due (daily tier)
-2. Create benchmark_runs records
-3. For each benchmark:
-   - Load questions from cache (or fetch if missing)
-   - For each active model:
-     - Run questions with rate limiting
-     - Calculate scores
-     - Store results
-4. Mark runs as completed
+Running 12,000+ MMLU-Pro questions across 6 models takes hours. Cloudflare Workers cron triggers have execution time limits (30 sec free, 15 min paid). We need a different approach.
 
-### Weekly (Sunday 6:00 AM UTC)
+### Architecture: Cloudflare Queues + Cron
 
-1. Run weekly tier benchmarks
-2. Run flagship models on daily benchmarks
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Daily Cron (6:00 AM UTC)                                       │
+│  - Creates benchmark_run records                                │
+│  - Enqueues work items to Queue                                 │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Cloudflare Queue: benchmark-tasks                              │
+│  Messages: { benchmark_id, model_id, question_batch: [0-99] }   │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Queue Consumer (Worker)                                        │
+│  - Processes batch of 100 questions                             │
+│  - Calls LLM API with rate limiting                             │
+│  - Stores results in D1                                         │
+│  - ~30 sec per batch                                            │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Progress Cron (every 5 min)                                    │
+│  - Checks if all batches complete                               │
+│  - Calculates final scores                                      │
+│  - Marks run as completed                                       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### wrangler.toml Queue Config
+
+```toml
+[[queues.producers]]
+binding = "BENCHMARK_QUEUE"
+queue = "benchmark-tasks"
+
+[[queues.consumers]]
+queue = "benchmark-tasks"
+max_batch_size = 1
+max_retries = 3
+dead_letter_queue = "benchmark-dlq"
+```
+
+### Work Distribution
+
+For MMLU-Pro (12,032 questions) × 6 models:
+- 121 batches per model (100 questions each)
+- 726 total queue messages
+- ~6 hours total runtime (with rate limiting)
+
+### Alternative: GitHub Actions
+
+If Queues add complexity, use GitHub Actions for orchestration:
+
+```yaml
+# .github/workflows/daily-benchmark.yml
+name: Daily Benchmark Run
+on:
+  schedule:
+    - cron: '0 6 * * *'  # 6 AM UTC
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        model: [claude-opus, claude-sonnet, gpt-4.1, o3, gemini-pro, grok-4]
+        benchmark: [mmlu-pro, simpleqa, livebench]
+    steps:
+      - name: Run benchmark batch
+        run: |
+          curl -X POST "https://benchmarks.emilycogsdill.com/api/admin/run" \
+            -H "Authorization: Bearer ${{ secrets.ADMIN_API_KEY }}" \
+            -d '{"model": "${{ matrix.model }}", "benchmark": "${{ matrix.benchmark }}"}'
+```
+
+**Recommendation**: Start with GitHub Actions (simpler), migrate to Queues if needed.
 
 ## Frontend (React SPA)
 
@@ -266,26 +380,30 @@ PUT  /api/admin/benchmarks/:id         # Update benchmark config
 4. Create D1 schema and migrations
 5. Basic health endpoint
 
-### Phase 2: Benchmark Engine
+### Phase 2: Benchmark Engine (MMLU-Pro First)
 
-1. Implement benchmark question loading
-   - GPQA Diamond from GitHub
-   - HumanEval from GitHub
-   - GSM8K from Hugging Face
-   - TruthfulQA from Hugging Face
-   - IFEval from Hugging Face
-2. Implement scoring logic per benchmark type
-3. Implement rate-limited evaluation runner
-4. Store results in D1
+1. Study lm-evaluation-harness dataset format and scoring
+2. Implement MMLU-Pro question loading from Hugging Face
+3. Implement MMLU-Pro scoring (10-choice accuracy)
+4. Implement rate-limited evaluation runner
+5. Store results in D1
+6. Verify against published lm-eval results
 
-### Phase 3: Scheduling
+### Phase 3: Additional Benchmarks
 
-1. Implement cron job for daily runs
-2. Add run status tracking
-3. Implement retry logic for failures
-4. Add cost tracking
+1. Implement SimpleQA (from OpenAI simple-evals)
+2. Implement LiveBench (from LiveBench GitHub)
+3. Add benchmark-specific scoring logic
 
-### Phase 4: Dashboard
+### Phase 4: Orchestration
+
+1. Set up GitHub Actions workflow for daily triggers
+2. Implement `/api/admin/run` endpoint for single model+benchmark
+3. Add batch progress tracking in D1
+4. Implement retry logic for API failures
+5. Add cost tracking per run
+
+### Phase 5: Dashboard
 
 1. Basic React SPA with Vite
 2. API endpoints for results
@@ -293,7 +411,7 @@ PUT  /api/admin/benchmarks/:id         # Update benchmark config
 4. Historical charts
 5. Comparison view
 
-### Phase 5: Polish
+### Phase 6: Polish
 
 1. Error handling and alerting
 2. Caching optimizations

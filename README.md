@@ -19,15 +19,15 @@ This application runs standardized LLM benchmarks daily across frontier models, 
 | Google | Gemini 2.5 Pro |
 | xAI | Grok 4 |
 
-### Benchmarks
+### Benchmarks (Priority Order)
 
 | Benchmark | Questions | Measures |
 |-----------|-----------|----------|
-| GPQA Diamond | 198 | PhD-level reasoning |
-| IFEval | 500 | Instruction following |
-| GSM8K | 500 (sampled) | Math reasoning |
-| HumanEval | 164 | Code generation |
-| TruthfulQA | 817 | Truthfulness |
+| MMLU-Pro | 12,032 | Knowledge + reasoning (10-choice) |
+| SimpleQA | 4,326 | Factual accuracy |
+| LiveBench | ~1,000 | Math, code, reasoning (contamination-resistant) |
+
+**Framework**: [EleutherAI lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness)
 
 ## Project Status
 
