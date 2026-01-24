@@ -13,7 +13,7 @@ A Cloudflare Workers application that runs standardized LLM benchmarks daily acr
 1. **Automated daily evaluation** of frontier LLMs on established benchmarks
 2. **Historical tracking** of model performance over time
 3. **Simple dashboard** showing current results and trends
-4. **Low operational cost** through smart sampling and caching
+4. **Cost tracking** per model/benchmark (following llm-observatory patterns)
 5. **Reuse patterns** from llm-observatory for consistency
 
 ## Non-Goals
@@ -60,25 +60,18 @@ A Cloudflare Workers application that runs standardized LLM benchmarks daily acr
 
 ## Models to Benchmark
 
-### Tier 1: Daily (Balanced Performance/Cost)
+### Daily Models (Flagship)
 
-| Provider | Model | Model ID | Est. Cost/Day |
-|----------|-------|----------|---------------|
-| Anthropic | Claude Sonnet 4.5 | `claude-sonnet-4-5-20250929` | ~$15 |
-| OpenAI | GPT-4.1 | `gpt-4.1` | ~$10 |
-| Google | Gemini 2.5 Flash | `gemini-2.5-flash` | ~$3 |
-| xAI | Grok 4 Fast | `grok-4-fast` | ~$2 |
+| Provider | Model | Model ID | Input/1M | Output/1M |
+|----------|-------|----------|----------|-----------|
+| Anthropic | Claude Opus 4.5 | `claude-opus-4-5-20251101` | $5.00 | $25.00 |
+| Anthropic | Claude Sonnet 4.5 | `claude-sonnet-4-5-20250929` | $3.00 | $15.00 |
+| OpenAI | GPT-4.1 | `gpt-4.1` | $2.00 | $8.00 |
+| OpenAI | o3 | `o3` | $2.00 | $8.00 |
+| Google | Gemini 2.5 Pro | `gemini-2.5-pro` | $4.00 | $20.00 |
+| xAI | Grok 4 | `grok-4` | $3.00 | $15.00 |
 
-**Total estimated daily cost**: ~$30
-
-### Tier 2: Weekly (Flagship)
-
-| Provider | Model | Model ID |
-|----------|-------|----------|
-| Anthropic | Claude Opus 4.5 | `claude-opus-4-5-20251101` |
-| OpenAI | o3 | `o3` |
-| Google | Gemini 2.5 Pro | `gemini-2.5-pro` |
-| xAI | Grok 4 | `grok-4` |
+**6 models evaluated daily** - costs tracked per-run for visibility
 
 ## Benchmarks to Run
 
@@ -122,15 +115,17 @@ CREATE TABLE benchmarks (
   created_at TEXT DEFAULT (datetime('now'))
 );
 
--- Model configurations
+-- Model configurations (mirrors llm-observatory pattern)
 CREATE TABLE models (
   id TEXT PRIMARY KEY,
   provider TEXT NOT NULL,  -- 'anthropic', 'openai', 'google', 'xai'
   model_name TEXT NOT NULL,  -- API model ID
   display_name TEXT NOT NULL,
-  tier TEXT DEFAULT 'daily',  -- 'daily', 'weekly'
+  input_price_per_m REAL,   -- USD per 1M input tokens
+  output_price_per_m REAL,  -- USD per 1M output tokens
   active INTEGER DEFAULT 1,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT
 );
 
 -- Benchmark runs (one per benchmark per day)
@@ -144,7 +139,7 @@ CREATE TABLE benchmark_runs (
   UNIQUE(benchmark_id, run_date)
 );
 
--- Results for each model in a run
+-- Results for each model in a run (cost tracking mirrors llm-observatory)
 CREATE TABLE benchmark_results (
   id TEXT PRIMARY KEY,
   run_id TEXT NOT NULL REFERENCES benchmark_runs(id),
@@ -155,7 +150,8 @@ CREATE TABLE benchmark_results (
   latency_avg_ms INTEGER,
   input_tokens INTEGER,
   output_tokens INTEGER,
-  cost_usd REAL,
+  input_cost REAL,   -- Calculated: (input_tokens / 1M) * input_price_per_m
+  output_cost REAL,  -- Calculated: (output_tokens / 1M) * output_price_per_m
   error TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   UNIQUE(run_id, model_id)
@@ -356,31 +352,26 @@ CF_ACCESS_TEAM_DOMAIN=...
 CF_ACCESS_AUD=...
 ```
 
-## Cost Projections
+## Cost Tracking
 
-### Daily
+Costs are tracked per-run following the llm-observatory pattern:
 
-| Item | Cost |
-|------|------|
-| 4 models × ~$8 | $32 |
-| Cloudflare Workers | Free tier |
-| D1 Database | Free tier |
-| **Total** | ~$32/day |
+```typescript
+// Cost calculation (same as llm-observatory)
+if (model.input_price_per_m !== null && inputTokens > 0) {
+  inputCost = (inputTokens / 1_000_000) * model.input_price_per_m;
+}
+if (model.output_price_per_m !== null && outputTokens > 0) {
+  outputCost = (outputTokens / 1_000_000) * model.output_price_per_m;
+}
+```
 
-### Monthly
+### Dashboard Cost Views
 
-| Item | Cost |
-|------|------|
-| Daily runs (30 days) | $960 |
-| Weekly flagship runs (4) | ~$200 |
-| **Total** | ~$1,160/month |
-
-### Cost Optimization Options
-
-1. **Sample benchmarks**: Run 10-25% of questions daily
-2. **Use cheaper models**: Gemini Flash-Lite, GPT-4.1 nano
-3. **Batch API**: 50% discount (delayed results OK)
-4. **Focus on flagship only weekly**
+- Total cost per day (all models, all benchmarks)
+- Cost breakdown by model
+- Cost breakdown by benchmark
+- Historical cost trends
 
 ## Open Questions
 

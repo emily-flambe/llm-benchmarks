@@ -8,15 +8,16 @@ Automated daily benchmarking of frontier LLMs from Anthropic, OpenAI, Google, an
 
 This application runs standardized LLM benchmarks daily across frontier models, tracking performance over time and displaying results in a simple dashboard.
 
-### Models Evaluated
+### Models Evaluated (Daily)
 
-| Provider | Model | Frequency |
-|----------|-------|-----------|
-| Anthropic | Claude Sonnet 4.5 | Daily |
-| OpenAI | GPT-4.1 | Daily |
-| Google | Gemini 2.5 Flash | Daily |
-| xAI | Grok 4 Fast | Daily |
-| + Flagship models | | Weekly |
+| Provider | Model |
+|----------|-------|
+| Anthropic | Claude Opus 4.5 |
+| Anthropic | Claude Sonnet 4.5 |
+| OpenAI | GPT-4.1 |
+| OpenAI | o3 |
+| Google | Gemini 2.5 Pro |
+| xAI | Grok 4 |
 
 ### Benchmarks
 
