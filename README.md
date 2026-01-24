@@ -1,33 +1,33 @@
 # LLM Benchmarks
 
-Automated daily benchmarking of frontier LLMs from Anthropic, OpenAI, Google, and xAI.
+Code quality benchmarking for Claude Opus 4.5.
 
 **Live**: [benchmarks.emilycogsdill.com](https://benchmarks.emilycogsdill.com) (coming soon)
 
 ## Overview
 
-This application runs standardized LLM benchmarks daily across frontier models, tracking performance over time and displaying results in a simple dashboard.
+Track Claude Opus 4.5 code generation performance over time using LiveCodeBench.
 
-### Models Evaluated (Daily)
+### Benchmark: LiveCodeBench
 
-| Provider | Model |
-|----------|-------|
-| Anthropic | Claude Opus 4.5 |
-| Anthropic | Claude Sonnet 4.5 |
-| OpenAI | GPT-4.1 |
-| OpenAI | o3 |
-| Google | Gemini 2.5 Pro |
-| xAI | Grok 4 |
+| | |
+|---|---|
+| **Problems** | ~400 (from LeetCode, AtCoder, CodeForces) |
+| **Measures** | Code generation, self-repair, test prediction |
+| **Why** | Contamination-resistant (continuously updated) |
+| **Cost** | ~$5-6 per full run, supports sampling for cheaper dev runs |
 
-### Benchmarks (Priority Order)
+### Sampling Support
 
-| Benchmark | Questions | Measures |
-|-----------|-----------|----------|
-| MMLU-Pro | 12,032 | Knowledge + reasoning (10-choice) |
-| SimpleQA | 4,326 | Factual accuracy |
-| LiveBench | ~1,000 | Math, code, reasoning (contamination-resistant) |
+| Sample Size | Cost (Opus 4.5) | Use Case |
+|-------------|-----------------|----------|
+| 10 problems | ~$0.15 | Development |
+| 50 problems | ~$0.75 | Quick check |
+| Full (~400) | ~$5-6 | Full benchmark |
 
-**Framework**: [EleutherAI lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness)
+### Primary Model
+
+**Claude Opus 4.5** - with optional comparisons against GPT-4.1, o3, Gemini 2.5 Pro, Grok 4
 
 ## Project Status
 

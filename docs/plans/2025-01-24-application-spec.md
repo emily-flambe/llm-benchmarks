@@ -53,18 +53,25 @@ A Cloudflare Workers application that runs standardized LLM benchmarks daily acr
 
 ## Models to Benchmark
 
-### Daily Models (Flagship)
+### Primary: Claude Opus 4.5
+
+| Model | Model ID | Input/1M | Output/1M |
+|-------|----------|----------|-----------|
+| Claude Opus 4.5 | `claude-opus-4-5-20251101` | $5.00 | $25.00 |
+
+**Cost per full LiveCodeBench run**: ~$5-6
+
+### Optional Comparisons
+
+Add these when you want to compare Opus against competitors:
 
 | Provider | Model | Model ID | Input/1M | Output/1M |
 |----------|-------|----------|----------|-----------|
-| Anthropic | Claude Opus 4.5 | `claude-opus-4-5-20251101` | $5.00 | $25.00 |
 | Anthropic | Claude Sonnet 4.5 | `claude-sonnet-4-5-20250929` | $3.00 | $15.00 |
 | OpenAI | GPT-4.1 | `gpt-4.1` | $2.00 | $8.00 |
 | OpenAI | o3 | `o3` | $2.00 | $8.00 |
 | Google | Gemini 2.5 Pro | `gemini-2.5-pro` | $4.00 | $20.00 |
 | xAI | Grok 4 | `grok-4` | $3.00 | $15.00 |
-
-**6 models evaluated daily** - costs tracked per-run for visibility
 
 ## Evaluation Framework
 
@@ -100,40 +107,57 @@ Two options for Cloudflare Workers integration:
 
 Recommendation: **Dataset-only approach** - fetch questions from lm-eval datasets, run prompts via our LLM provider layer, score results ourselves. This keeps everything in Cloudflare Workers.
 
-## Benchmarks (Priority Order)
+## Benchmark: LiveCodeBench
 
-### 1. MMLU-Pro (Primary)
+### Why LiveCodeBench
 
-- **What**: Enhanced MMLU with harder reasoning, 10 choices per question
-- **Size**: 12,032 questions across 14 subjects
-- **Access**: [Hugging Face](https://huggingface.co/datasets/TIGER-Lab/MMLU-Pro)
-- **lm-eval task**: `mmlu_pro`
-- **Scoring**: Accuracy (exact match on answer letter)
-- **Why first**: Comprehensive knowledge benchmark, harder than saturated MMLU
+- **Focus**: Code generation quality (primary interest)
+- **Size**: ~400 problems from LeetCode, AtCoder, CodeForces
+- **Contamination-resistant**: Continuously updated with new problems
+- **Tests multiple skills**: Generation, self-repair, test prediction
+- **Cost-effective**: ~$5-6 per full run (Opus 4.5)
 
-### 2. SimpleQA
+### Access
 
-- **What**: Short-form factual questions (adversarially selected)
-- **Size**: 4,326 questions
-- **Access**: [OpenAI simple-evals](https://github.com/openai/simple-evals)
-- **Scoring**: correct / incorrect / not_attempted
-- **Why second**: Tests factual accuracy, designed to be challenging
+- **Website**: [livecodebench.github.io](https://livecodebench.github.io/)
+- **GitHub**: [LiveCodeBench/LiveCodeBench](https://github.com/LiveCodeBench/LiveCodeBench)
+- **Paper**: [arXiv:2403.07974](https://arxiv.org/abs/2403.07974)
 
-### 3. LiveBench
+### Scoring
 
-- **What**: Contamination-resistant benchmark with monthly updates
-- **Size**: ~1,000 questions across math, coding, reasoning, data analysis
-- **Access**: [GitHub](https://github.com/LiveBench/LiveBench)
-- **Scoring**: Varies by category
-- **Why third**: Fresh questions prevent training contamination
+- **pass@1**: Does the generated code pass all test cases on first attempt?
+- Execution-based evaluation (actually runs the code)
+
+### Sampling Support
+
+Run subsets during development to control costs:
+
+| Sample Size | Est. Cost (Opus 4.5) | Use Case |
+|-------------|----------------------|----------|
+| 10 problems | ~$0.15 | Development/testing |
+| 20 problems | ~$0.30 | Quick validation |
+| 50 problems | ~$0.75 | Canary runs |
+| 100 problems | ~$1.50 | Daily monitoring |
+| Full (~400) | ~$5-6 | Weekly full benchmark |
+
+### API
+
+```typescript
+POST /api/admin/run
+{
+  "benchmark": "livecodebench",
+  "model": "claude-opus-4-5-20251101",
+  "sample_size": 20  // optional, omit for full run
+}
+```
 
 ### Future Additions
 
 | Benchmark | Size | Notes |
 |-----------|------|-------|
-| GPQA Diamond | 198 | PhD-level, small but hard |
-| IFEval | 500 | Objective instruction following |
-| HumanEval | 164 | Code generation |
+| HumanEval+ | 164 | Classic code benchmark, enhanced tests |
+| SWE-bench Verified | 500 | Real GitHub issues (expensive) |
+| BigCodeBench | 1,140 | Multi-library coding tasks |
 
 ## Data Model
 
