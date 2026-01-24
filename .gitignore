@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Build output
+dist/
+
+# Wrangler
+.wrangler/
+.dev.vars
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test coverage
+coverage/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Benchmark output
+results.json

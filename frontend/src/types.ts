@@ -1,0 +1,68 @@
+export interface Model {
+  id: string;
+  provider: string;
+  model_name: string;
+  display_name: string;
+  input_price_per_m: number | null;
+  output_price_per_m: number | null;
+  active: boolean;
+}
+
+export interface BenchmarkRun {
+  id: string;
+  model_id: string;
+  run_date: string;
+  sample_size: number | null;
+  score: number | null;
+  passed_count: number | null;
+  total_count: number | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  input_cost: number | null;
+  output_cost: number | null;
+  duration_seconds: number | null;
+  github_run_id: string | null;
+  status: string;
+  created_at: string;
+}
+
+export interface ProblemResult {
+  id: string;
+  run_id: string;
+  problem_id: string;
+  passed: boolean;
+  error_type: 'syntax' | 'runtime' | 'wrong_answer' | 'timeout' | null;
+  latency_ms: number | null;
+}
+
+export interface TrendDataPoint {
+  date: string;
+  score: number;
+  sample_size: number;
+}
+
+export interface RunsResponse {
+  runs: BenchmarkRun[];
+}
+
+export interface RunDetailResponse {
+  run: BenchmarkRun;
+}
+
+export interface ProblemsResponse {
+  problems: ProblemResult[];
+}
+
+export interface TrendsResponse {
+  trends: TrendDataPoint[];
+}
+
+export interface ModelsResponse {
+  models: Model[];
+}
+
+export interface CostSummaryData {
+  total_month: number;
+  average_per_run: number;
+  run_count: number;
+}

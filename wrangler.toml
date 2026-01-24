@@ -1,0 +1,28 @@
+name = "llm-benchmarks"
+main = "src/index.ts"
+compatibility_date = "2026-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[build]
+command = "npm run build:frontend"
+
+[[routes]]
+pattern = "benchmarks.emilycogsdill.com"
+custom_domain = true
+
+[assets]
+directory = "./dist"
+not_found_handling = "single-page-application"
+binding = "ASSETS"
+run_worker_first = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "llm-benchmarks-db"
+database_id = "placeholder-update-after-creation"
+
+[observability]
+enabled = true
+
+[vars]
+# ADMIN_API_KEY should be set via wrangler secret
