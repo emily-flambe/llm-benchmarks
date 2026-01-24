@@ -6,52 +6,59 @@
 
 ## Summary
 
-A Cloudflare Workers application that runs LiveCodeBench to evaluate Claude Opus 4.5 code generation quality, with optional comparisons against other frontier models. Supports sampling for cost-effective development runs.
+Track Claude Opus 4.5 code generation quality over time using LiveCodeBench. GitHub Actions handles orchestration and code execution; Cloudflare Workers serves the dashboard and API.
 
 ## Goals
 
-1. **Automated daily evaluation** of frontier LLMs on established benchmarks
-2. **Historical tracking** of model performance over time
-3. **Simple dashboard** showing current results and trends
-4. **Cost tracking** per model/benchmark (following llm-observatory patterns)
-5. **Reuse patterns** from llm-observatory for consistency
+1. **Track Opus 4.5 code quality** over time with LiveCodeBench
+2. **Simple, visually pleasing dashboard** showing scores and trends
+3. **Cost-effective** (~$5-6 per full run, sampling for dev)
+4. **Reuse patterns** from llm-observatory for consistency
 
 ## Non-Goals
 
-- Creating custom benchmarks (use established ones only)
-- Real-time evaluation (daily batch is sufficient)
-- Supporting non-frontier/open-source models (future scope)
+- Supporting many models (Opus 4.5 primary, comparisons optional)
+- Real-time evaluation (daily batch is fine)
 - Complex analytics or ML on results
+- Over-engineered infrastructure
 
-## Architecture Overview
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Cloudflare Workers                        │
-├─────────────────────────────────────────────────────────────┤
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │   Frontend   │  │   Backend    │  │   Cron Job   │      │
-│  │   (React)    │  │   (Hono)     │  │   (Daily)    │      │
-│  └──────────────┘  └──────────────┘  └──────────────┘      │
-│         │                 │                 │               │
-│         └─────────────────┴─────────────────┘               │
-│                           │                                 │
-│  ┌────────────────────────┴────────────────────────┐       │
-│  │                    D1 Database                   │       │
-│  │  - Benchmark configs  - Run history             │       │
-│  │  - Model configs      - Daily results           │       │
-│  └──────────────────────────────────────────────────┘       │
-└─────────────────────────────────────────────────────────────┘
-                           │
-                           ▼
-              ┌────────────────────────┐
-              │        LLM APIs        │
-              │  Anthropic, OpenAI,    │
-              │  Google, xAI           │
-              └────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│  GitHub Actions (Daily Cron)                                    │
+│  - Fetches LiveCodeBench problems                               │
+│  - Calls LLM APIs for code generation                           │
+│  - Executes generated code (Python runtime available)           │
+│  - Scores pass@1 results                                        │
+│  - POSTs results to Cloudflare Worker API                       │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Cloudflare Workers                                             │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌──────────────┐  ┌──────────────┐                            │
+│  │   Frontend   │  │   Backend    │                            │
+│  │   (React)    │  │   (Hono)     │                            │
+│  └──────────────┘  └──────────────┘                            │
+│         │                 │                                     │
+│         └─────────────────┘                                     │
+│                  │                                              │
+│  ┌───────────────┴───────────────┐                             │
+│  │         D1 Database           │                             │
+│  │  - Run history & scores       │                             │
+│  │  - Cost tracking              │                             │
+│  └───────────────────────────────┘                             │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-## Models to Benchmark
+**Why this split?**
+- GitHub Actions can execute Python code (required for pass@1 scoring)
+- Cloudflare Workers cannot run arbitrary code
+- Workers are great for the API and dashboard
+
+## Models
 
 ### Primary: Claude Opus 4.5
 
@@ -59,161 +66,154 @@ A Cloudflare Workers application that runs LiveCodeBench to evaluate Claude Opus
 |-------|----------|----------|-----------|
 | Claude Opus 4.5 | `claude-opus-4-5-20251101` | $5.00 | $25.00 |
 
-**Cost per full LiveCodeBench run**: ~$5-6
+**Cost per full run**: ~$5-6
 
 ### Optional Comparisons
 
-Add these when you want to compare Opus against competitors:
-
 | Provider | Model | Model ID | Input/1M | Output/1M |
 |----------|-------|----------|----------|-----------|
-| Anthropic | Claude Sonnet 4.5 | `claude-sonnet-4-5-20250929` | $3.00 | $15.00 |
 | OpenAI | GPT-4.1 | `gpt-4.1` | $2.00 | $8.00 |
 | OpenAI | o3 | `o3` | $2.00 | $8.00 |
 | Google | Gemini 2.5 Pro | `gemini-2.5-pro` | $4.00 | $20.00 |
-| xAI | Grok 4 | `grok-4` | $3.00 | $15.00 |
-
-## Evaluation Approach
-
-Use LiveCodeBench dataset directly. Fetch problems from their GitHub/Hugging Face, run prompts via our LLM provider layer (copied from llm-observatory), execute generated code, and score results ourselves. All runs within Cloudflare Workers.
 
 ## Benchmark: LiveCodeBench
 
 ### Why LiveCodeBench
 
-- **Focus**: Code generation quality (primary interest)
+- **Focus**: Code generation quality
 - **Size**: ~400 problems from LeetCode, AtCoder, CodeForces
-- **Contamination-resistant**: Continuously updated with new problems
-- **Tests multiple skills**: Generation, self-repair, test prediction
-- **Cost-effective**: ~$5-6 per full run (Opus 4.5)
-
-### Access
-
-- **Website**: [livecodebench.github.io](https://livecodebench.github.io/)
-- **GitHub**: [LiveCodeBench/LiveCodeBench](https://github.com/LiveCodeBench/LiveCodeBench)
-- **Paper**: [arXiv:2403.07974](https://arxiv.org/abs/2403.07974)
+- **Contamination-resistant**: Continuously updated
+- **Cost-effective**: ~$5-6 per full run
 
 ### Scoring
 
-- **pass@1**: Does the generated code pass all test cases on first attempt?
-- Execution-based evaluation (actually runs the code)
+- **pass@1**: Does generated code pass all test cases on first attempt?
+- Requires actual code execution (handled by GitHub Actions)
 
-### Sampling Support
+### Sampling
 
-Run subsets during development to control costs:
-
-| Sample Size | Est. Cost (Opus 4.5) | Use Case |
-|-------------|----------------------|----------|
-| 10 problems | ~$0.15 | Development/testing |
-| 20 problems | ~$0.30 | Quick validation |
-| 50 problems | ~$0.75 | Canary runs |
+| Sample Size | Cost (Opus) | Use Case |
+|-------------|-------------|----------|
+| 10 problems | ~$0.15 | Development |
+| 50 problems | ~$0.75 | Quick validation |
 | 100 problems | ~$1.50 | Daily monitoring |
-| Full (~400) | ~$5-6 | Weekly full benchmark |
+| Full (~400) | ~$5-6 | Weekly full run |
 
-### API
+**Decision**: Use fixed random seed for reproducible samples. Full runs weekly, sampled runs (50-100) daily.
 
-```typescript
-POST /api/admin/run
-{
-  "benchmark": "livecodebench",
-  "model": "claude-opus-4-5-20251101",
-  "sample_size": 20  // optional, omit for full run
-}
-```
+### Access
+
+- **GitHub**: [LiveCodeBench/LiveCodeBench](https://github.com/LiveCodeBench/LiveCodeBench)
+- **Hugging Face**: [livecodebench/livecodebench](https://huggingface.co/datasets/livecodebench/livecodebench)
 
 ### Future Additions
 
 | Benchmark | Size | Cost | Notes |
 |-----------|------|------|-------|
-| **IFEval** | 500 | ~$5 | Instruction following (objective scoring, no LLM judge) |
-| HumanEval+ | 164 | ~$2 | Classic code benchmark, enhanced tests |
-| SWE-bench Verified | 500 | ~$50+ | Real GitHub issues (expensive) |
-| BigCodeBench | 1,140 | ~$15-20 | Multi-library coding tasks |
+| **IFEval** | 500 | ~$5 | Instruction following (no code execution needed) |
+
+## GitHub Actions Workflow
+
+```yaml
+# .github/workflows/benchmark.yml
+name: LiveCodeBench
+
+on:
+  schedule:
+    - cron: '0 6 * * *'  # Daily at 6 AM UTC
+  workflow_dispatch:
+    inputs:
+      sample_size:
+        description: 'Number of problems (0 = full)'
+        default: '100'
+      model:
+        description: 'Model to benchmark'
+        default: 'claude-opus-4-5-20251101'
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install anthropic openai httpx
+
+      - name: Run benchmark
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ADMIN_API_KEY: ${{ secrets.ADMIN_API_KEY }}
+        run: python scripts/run_benchmark.py --model ${{ inputs.model || 'claude-opus-4-5-20251101' }} --sample ${{ inputs.sample_size || '100' }}
+
+      - name: Upload results
+        run: |
+          curl -X POST "https://benchmarks.emilycogsdill.com/api/results" \
+            -H "Authorization: Bearer $ADMIN_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d @results.json
+```
 
 ## Data Model
 
 ### D1 Schema
 
 ```sql
--- Benchmark definitions
-CREATE TABLE benchmarks (
+-- Model configurations
+CREATE TABLE models (
   id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  description TEXT,
-  dataset_url TEXT,
-  question_count INTEGER,
-  scoring_method TEXT,  -- 'accuracy', 'pass_at_k', 'exact_match'
-  tier TEXT DEFAULT 'daily',  -- 'daily', 'weekly', 'monthly'
+  provider TEXT NOT NULL,
+  model_name TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  input_price_per_m REAL,
+  output_price_per_m REAL,
   active INTEGER DEFAULT 1,
   created_at TEXT DEFAULT (datetime('now'))
 );
 
--- Model configurations (mirrors llm-observatory pattern)
-CREATE TABLE models (
-  id TEXT PRIMARY KEY,
-  provider TEXT NOT NULL,  -- 'anthropic', 'openai', 'google', 'xai'
-  model_name TEXT NOT NULL,  -- API model ID
-  display_name TEXT NOT NULL,
-  input_price_per_m REAL,   -- USD per 1M input tokens
-  output_price_per_m REAL,  -- USD per 1M output tokens
-  active INTEGER DEFAULT 1,
-  created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT
-);
-
--- Benchmark runs (one per benchmark per day)
+-- Benchmark runs
 CREATE TABLE benchmark_runs (
   id TEXT PRIMARY KEY,
-  benchmark_id TEXT NOT NULL REFERENCES benchmarks(id),
-  run_date TEXT NOT NULL,  -- YYYY-MM-DD
-  status TEXT DEFAULT 'pending',  -- 'pending', 'running', 'completed', 'failed'
-  started_at TEXT,
-  completed_at TEXT,
-  UNIQUE(benchmark_id, run_date)
-);
-
--- Results for each model in a run (cost tracking mirrors llm-observatory)
-CREATE TABLE benchmark_results (
-  id TEXT PRIMARY KEY,
-  run_id TEXT NOT NULL REFERENCES benchmark_runs(id),
   model_id TEXT NOT NULL REFERENCES models(id),
-  score REAL,  -- 0.0 to 1.0
-  correct_count INTEGER,
+  run_date TEXT NOT NULL,
+  sample_size INTEGER,
+  score REAL,  -- 0.0 to 1.0 (pass@1)
+  passed_count INTEGER,
   total_count INTEGER,
-  latency_avg_ms INTEGER,
   input_tokens INTEGER,
   output_tokens INTEGER,
-  input_cost REAL,   -- Calculated: (input_tokens / 1M) * input_price_per_m
-  output_cost REAL,  -- Calculated: (output_tokens / 1M) * output_price_per_m
-  error TEXT,
-  created_at TEXT DEFAULT (datetime('now')),
-  UNIQUE(run_id, model_id)
+  input_cost REAL,
+  output_cost REAL,
+  duration_seconds INTEGER,
+  github_run_id TEXT,
+  status TEXT DEFAULT 'completed',
+  created_at TEXT DEFAULT (datetime('now'))
 );
 
--- Individual question results (for debugging/analysis)
-CREATE TABLE question_results (
+-- Per-problem results (compact, no full responses stored)
+CREATE TABLE problem_results (
   id TEXT PRIMARY KEY,
-  result_id TEXT NOT NULL REFERENCES benchmark_results(id),
-  question_id TEXT NOT NULL,
-  correct INTEGER,
-  response TEXT,
-  expected TEXT,
+  run_id TEXT NOT NULL REFERENCES benchmark_runs(id),
+  problem_id TEXT NOT NULL,
+  passed INTEGER NOT NULL,  -- 0 or 1
+  error_type TEXT,  -- null, 'syntax', 'runtime', 'wrong_answer', 'timeout'
   latency_ms INTEGER,
   created_at TEXT DEFAULT (datetime('now'))
 );
 
--- Cached benchmark questions (to avoid re-fetching)
-CREATE TABLE benchmark_questions (
-  id TEXT PRIMARY KEY,
-  benchmark_id TEXT NOT NULL REFERENCES benchmarks(id),
-  question_id TEXT NOT NULL,  -- Original ID from dataset
-  question_text TEXT NOT NULL,
-  choices TEXT,  -- JSON array for MC
-  correct_answer TEXT,
-  metadata TEXT,  -- JSON for extra fields
-  UNIQUE(benchmark_id, question_id)
-);
+-- Index for dashboard queries
+CREATE INDEX idx_runs_date ON benchmark_runs(run_date DESC);
+CREATE INDEX idx_runs_model ON benchmark_runs(model_id, run_date DESC);
 ```
+
+**Note**: Full responses are NOT stored to keep D1 lean. If debugging needed, re-run that specific problem.
 
 ## API Endpoints
 
@@ -221,183 +221,80 @@ CREATE TABLE benchmark_questions (
 
 ```
 GET /api/health
-GET /api/benchmarks                    # List all benchmarks
-GET /api/benchmarks/:id                # Benchmark details
-GET /api/models                        # List all models
-GET /api/results/latest                # Latest results for all benchmarks
-GET /api/results/benchmark/:id         # Results for a benchmark over time
-GET /api/results/model/:id             # Results for a model over time
-GET /api/results/date/:date            # Results for a specific date
-GET /api/comparison                    # Side-by-side model comparison
+GET /api/runs                      # Recent runs with scores
+GET /api/runs/:id                  # Single run details
+GET /api/runs/:id/problems         # Problem-level results
+GET /api/trends                    # Score over time for charts
+GET /api/models                    # Configured models
 ```
 
-### Admin (Protected)
+### Admin (Protected by ADMIN_API_KEY)
 
 ```
-POST /api/admin/run/:benchmark_id      # Trigger manual run
-POST /api/admin/run-all                # Trigger all daily benchmarks
-POST /api/admin/sync-datasets          # Re-fetch benchmark datasets
-PUT  /api/admin/models/:id             # Update model config
-PUT  /api/admin/benchmarks/:id         # Update benchmark config
+POST /api/results                  # Submit run results (from GitHub Actions)
 ```
 
-## Orchestration & Scheduling
+**Rate limiting**: Admin endpoints limited to 10 requests/minute to prevent runaway costs from leaked keys.
 
-### The Challenge
+## Frontend
 
-Running 12,000+ MMLU-Pro questions across 6 models takes hours. Cloudflare Workers cron triggers have execution time limits (30 sec free, 15 min paid). We need a different approach.
+### Dashboard (Single Page)
 
-### Architecture: Cloudflare Queues + Cron
+Keep it simple - one page with:
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Daily Cron (6:00 AM UTC)                                       │
-│  - Creates benchmark_run records                                │
-│  - Enqueues work items to Queue                                 │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  Cloudflare Queue: benchmark-tasks                              │
-│  Messages: { benchmark_id, model_id, question_batch: [0-99] }   │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  Queue Consumer (Worker)                                        │
-│  - Processes batch of 100 questions                             │
-│  - Calls LLM API with rate limiting                             │
-│  - Stores results in D1                                         │
-│  - ~30 sec per batch                                            │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  Progress Cron (every 5 min)                                    │
-│  - Checks if all batches complete                               │
-│  - Calculates final scores                                      │
-│  - Marks run as completed                                       │
-└─────────────────────────────────────────────────────────────────┘
-```
+1. **Current Score Card**
+   - Latest pass@1 score (big number)
+   - Date of last run
+   - Sample size indicator
 
-### wrangler.toml Queue Config
+2. **Trend Chart**
+   - Line chart of scores over past 30 days
+   - Use Recharts (simple, no dependencies)
 
-```toml
-[[queues.producers]]
-binding = "BENCHMARK_QUEUE"
-queue = "benchmark-tasks"
+3. **Recent Runs Table**
+   - Date, score, sample size, cost
+   - Click to see problem-level breakdown
 
-[[queues.consumers]]
-queue = "benchmark-tasks"
-max_batch_size = 1
-max_retries = 3
-dead_letter_queue = "benchmark-dlq"
-```
+4. **Cost Summary**
+   - Total spent this month
+   - Average per run
 
-### Work Distribution
+### Design Principles
 
-For MMLU-Pro (12,032 questions) × 6 models:
-- 121 batches per model (100 questions each)
-- 726 total queue messages
-- ~6 hours total runtime (with rate limiting)
-
-### Alternative: GitHub Actions
-
-If Queues add complexity, use GitHub Actions for orchestration:
-
-```yaml
-# .github/workflows/daily-benchmark.yml
-name: Daily Benchmark Run
-on:
-  schedule:
-    - cron: '0 6 * * *'  # 6 AM UTC
-
-jobs:
-  benchmark:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        model: [claude-opus, claude-sonnet, gpt-4.1, o3, gemini-pro, grok-4]
-        benchmark: [mmlu-pro, simpleqa, livebench]
-    steps:
-      - name: Run benchmark batch
-        run: |
-          curl -X POST "https://benchmarks.emilycogsdill.com/api/admin/run" \
-            -H "Authorization: Bearer ${{ secrets.ADMIN_API_KEY }}" \
-            -d '{"model": "${{ matrix.model }}", "benchmark": "${{ matrix.benchmark }}"}'
-```
-
-**Recommendation**: Start with GitHub Actions (simpler), migrate to Queues if needed.
-
-## Frontend (React SPA)
-
-### Pages
-
-1. **Dashboard** (`/`)
-   - Summary cards: latest scores per model
-   - Trend sparklines for each benchmark
-   - Quick comparison table
-
-2. **Benchmark Detail** (`/benchmark/:id`)
-   - Full results table
-   - Historical chart
-   - Question-level breakdown
-
-3. **Model Detail** (`/model/:id`)
-   - All benchmark scores for this model
-   - Historical performance
-
-4. **Comparison** (`/compare`)
-   - Select 2-4 models
-   - Side-by-side benchmark results
-
-### Components
-
-- `ScoreCard`: Model + score + trend indicator
-- `BenchmarkTable`: Sortable results table
-- `TrendChart`: Line chart over time (Recharts or Chart.js)
-- `ComparisonGrid`: Multi-model comparison matrix
+- Clean, minimal (not flashy)
+- Dark mode default
+- Mobile-friendly
+- No login required (read-only public)
 
 ## Implementation Phases
 
-### Phase 1: Foundation
+### Phase 1: GitHub Actions Runner
 
-1. Set up project structure (mirror llm-observatory)
-2. Configure wrangler.toml for benchmarks.emilycogsdill.com
-3. Implement LLM provider layer (copy from observatory)
-4. Create D1 schema and migrations
-5. Basic health endpoint
+1. Script to fetch LiveCodeBench problems
+2. Script to call Anthropic API
+3. Script to execute generated code safely
+4. Script to calculate pass@1 and POST results
+5. Workflow file with schedule
 
-### Phase 2: LiveCodeBench Engine
+### Phase 2: Cloudflare Worker API
 
-1. Fetch LiveCodeBench problems from GitHub/Hugging Face
-2. Implement problem prompt formatting
-3. Implement code execution sandbox (for pass@1 scoring)
-4. Implement rate-limited evaluation runner with sampling support
-5. Store results in D1
+1. Project setup (copy patterns from llm-observatory)
+2. D1 schema and migrations
+3. POST /api/results endpoint
+4. GET endpoints for dashboard
 
-### Phase 3: Orchestration
+### Phase 3: Dashboard
 
-1. Set up GitHub Actions workflow for daily triggers
-2. Implement `/api/admin/run` endpoint for single model+benchmark
-3. Add batch progress tracking in D1
-4. Implement retry logic for API failures
-5. Add cost tracking per run
+1. React SPA with Vite
+2. Score card and trend chart
+3. Runs table
+4. Deploy to Workers
 
-### Phase 4: Dashboard
+### Phase 4: Polish
 
-1. Basic React SPA with Vite
-2. API endpoints for results
-3. Dashboard with score cards
-4. Historical charts
-5. Comparison view
-
-### Phase 5: Polish
-
-1. Error handling and alerting
-2. Caching optimizations
-3. Documentation
-4. E2E tests
+1. Error notifications (GitHub Actions failures)
+2. Cost alerts if spending exceeds threshold
+3. README and setup docs
 
 ## Configuration
 
@@ -406,7 +303,7 @@ jobs:
 ```toml
 name = "llm-benchmarks"
 main = "src/index.ts"
-compatibility_date = "2025-01-09"
+compatibility_date = "2026-01-01"
 compatibility_flags = ["nodejs_compat"]
 
 [build]
@@ -427,61 +324,35 @@ binding = "DB"
 database_name = "llm-benchmarks-db"
 database_id = "..."
 
-[triggers]
-crons = ["0 6 * * *"]  # Daily at 6 AM UTC
-
 [observability]
 enabled = true
 ```
 
-### Environment Variables
+### GitHub Secrets
 
-```bash
-# LLM Provider Keys (reuse from llm-observatory)
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
-GOOGLE_API_KEY=...
-XAI_API_KEY=xai-...
-
-# Admin
-ADMIN_API_KEY=...
-
-# Optional: Cloudflare Access for admin routes
-CF_ACCESS_TEAM_DOMAIN=...
-CF_ACCESS_AUD=...
+```
+ANTHROPIC_API_KEY - For calling Claude API
+OPENAI_API_KEY - For optional comparisons
+ADMIN_API_KEY - For posting results to Worker
 ```
 
-## Cost Tracking
+### Environment Variables (Worker)
 
-Costs are tracked per-run following the llm-observatory pattern:
-
-```typescript
-// Cost calculation (same as llm-observatory)
-if (model.input_price_per_m !== null && inputTokens > 0) {
-  inputCost = (inputTokens / 1_000_000) * model.input_price_per_m;
-}
-if (model.output_price_per_m !== null && outputTokens > 0) {
-  outputCost = (outputTokens / 1_000_000) * model.output_price_per_m;
-}
+```
+ADMIN_API_KEY - Must match GitHub secret
 ```
 
-### Dashboard Cost Views
+## Decisions
 
-- Total cost per day (all models, all benchmarks)
-- Cost breakdown by model
-- Cost breakdown by benchmark
-- Historical cost trends
-
-## Open Questions
-
-1. **Sampling strategy**: Fixed sample or rotating questions?
-2. **Result storage**: Keep all question-level results or aggregate only?
-3. **Public vs private**: Require auth for dashboard?
-4. **Alerting**: Notify on significant score changes?
+| Question | Decision |
+|----------|----------|
+| Sampling strategy | Fixed random seed for reproducibility |
+| Result storage | Aggregate only (no full responses) |
+| Dashboard auth | Public read-only |
+| Alerting | GitHub Actions email on failure |
 
 ## References
 
-- [llm-observatory](https://github.com/emily-flambe/llm-observatory) - Existing patterns
+- [llm-observatory](https://github.com/emily-flambe/llm-observatory) - Patterns to reuse
 - [LiveCodeBench](https://github.com/LiveCodeBench/LiveCodeBench) - Benchmark dataset
-- [LiveCodeBench paper](https://arxiv.org/abs/2403.07974) - Benchmark methodology
 - Research docs in `docs/research/`

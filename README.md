@@ -1,72 +1,52 @@
 # LLM Benchmarks
 
-Code quality benchmarking for Claude Opus 4.5.
+Track Claude Opus 4.5 code generation quality over time using LiveCodeBench.
 
 **Live**: [benchmarks.emilycogsdill.com](https://benchmarks.emilycogsdill.com) (coming soon)
 
-## Overview
+## How It Works
 
-Track Claude Opus 4.5 code generation performance over time using LiveCodeBench.
+```
+GitHub Actions (daily)     Cloudflare Workers
+┌─────────────────────┐    ┌─────────────────────┐
+│ Fetch problems      │    │                     │
+│ Call Claude API     │───▶│ Store results (D1)  │
+│ Execute code        │    │ Serve dashboard     │
+│ Score pass@1        │    │                     │
+└─────────────────────┘    └─────────────────────┘
+```
 
-### Benchmark: LiveCodeBench
+- **GitHub Actions**: Runs benchmarks (can execute Python code for scoring)
+- **Cloudflare Workers**: API + dashboard (can't execute arbitrary code)
+
+## Benchmark: LiveCodeBench
 
 | | |
 |---|---|
-| **Problems** | ~400 (from LeetCode, AtCoder, CodeForces) |
-| **Measures** | Code generation, self-repair, test prediction |
-| **Why** | Contamination-resistant (continuously updated) |
-| **Cost** | ~$5-6 per full run, supports sampling for cheaper dev runs |
+| **Problems** | ~400 (LeetCode, AtCoder, CodeForces) |
+| **Metric** | pass@1 (code passes all tests on first try) |
+| **Why** | Contamination-resistant, continuously updated |
 
-### Sampling Support
+## Costs
 
 | Sample Size | Cost (Opus 4.5) | Use Case |
 |-------------|-----------------|----------|
 | 10 problems | ~$0.15 | Development |
-| 50 problems | ~$0.75 | Quick check |
-| Full (~400) | ~$5-6 | Full benchmark |
-
-### Primary Model
-
-**Claude Opus 4.5** - with optional comparisons against GPT-4.1, o3, Gemini 2.5 Pro, Grok 4
+| 100 problems | ~$1.50 | Daily runs |
+| Full (~400) | ~$5-6 | Weekly runs |
 
 ## Project Status
 
-🚧 **Under Development**
+**Under Development**
 
-See [docs/plans/2026-01-24-application-spec.md](docs/plans/2026-01-24-application-spec.md) for the full specification.
-
-## Documentation
-
-- [Application Spec](docs/plans/2026-01-24-application-spec.md) - Full design document
-- [Research: LLM Observatory Patterns](docs/research/01-llm-observatory-patterns.md) - Reusable patterns
-- [Research: Benchmark Landscape](docs/research/02-benchmark-landscape.md) - Benchmark evaluation
-- [Research: Frontier Model APIs](docs/research/03-frontier-model-apis.md) - API reference
+See [docs/plans/2026-01-24-application-spec.md](docs/plans/2026-01-24-application-spec.md) for full spec.
 
 ## Tech Stack
 
-- **Runtime**: Cloudflare Workers
-- **Framework**: Hono (TypeScript)
-- **Database**: Cloudflare D1 (SQLite)
-- **Frontend**: React + Vite
-- **Deployment**: Wrangler CLI
+- **Benchmark runner**: GitHub Actions (Python)
+- **API & Dashboard**: Cloudflare Workers (Hono + React)
+- **Database**: Cloudflare D1
 
-## Development
+## Related
 
-```bash
-# Setup
-make setup
-
-# Development
-make dev
-
-# Deploy
-make deploy
-```
-
-## Related Projects
-
-- [llm-observatory](https://github.com/emily-flambe/llm-observatory) - LLM response collection and analysis
-
-## License
-
-MIT
+- [llm-observatory](https://github.com/emily-flambe/llm-observatory) - LLM response collection
