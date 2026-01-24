@@ -1,12 +1,12 @@
 # LLM Benchmarks Application Specification
 
-**Date**: 2025-01-24
+**Date**: 2026-01-24
 **Status**: Draft
 **Domain**: benchmarks.emilycogsdill.com
 
 ## Summary
 
-A Cloudflare Workers application that runs standardized LLM benchmarks daily across frontier models from Anthropic, OpenAI, Google, and xAI, displaying results in a simple dashboard UI.
+A Cloudflare Workers application that runs LiveCodeBench to evaluate Claude Opus 4.5 code generation quality, with optional comparisons against other frontier models. Supports sampling for cost-effective development runs.
 
 ## Goals
 
@@ -73,39 +73,9 @@ Add these when you want to compare Opus against competitors:
 | Google | Gemini 2.5 Pro | `gemini-2.5-pro` | $4.00 | $20.00 |
 | xAI | Grok 4 | `grok-4` | $3.00 | $15.00 |
 
-## Evaluation Framework
+## Evaluation Approach
 
-### EleutherAI lm-evaluation-harness
-
-Primary framework for running benchmarks. Industry standard, powers Hugging Face leaderboard.
-
-```bash
-pip install lm-eval
-pip install "lm_eval[api]"  # For API provider support
-```
-
-**API Provider Support**:
-- `openai-chat-completions` - OpenAI models
-- `anthropic-chat-completions` - Claude models
-- Custom providers for Google/xAI (may need implementation)
-
-**Usage Pattern**:
-```bash
-export OPENAI_API_KEY=...
-lm_eval --model openai-chat-completions \
-        --model_args model=gpt-4.1 \
-        --tasks mmlu_pro \
-        --output_path results/
-```
-
-### Integration Approach
-
-Two options for Cloudflare Workers integration:
-
-1. **Subprocess approach**: Run lm-eval as CLI from worker (requires compute beyond Workers)
-2. **Dataset-only approach**: Use lm-eval datasets but implement evaluation loop in TypeScript
-
-Recommendation: **Dataset-only approach** - fetch questions from lm-eval datasets, run prompts via our LLM provider layer, score results ourselves. This keeps everything in Cloudflare Workers.
+Use LiveCodeBench dataset directly. Fetch problems from their GitHub/Hugging Face, run prompts via our LLM provider layer (copied from llm-observatory), execute generated code, and score results ourselves. All runs within Cloudflare Workers.
 
 ## Benchmark: LiveCodeBench
 
@@ -397,22 +367,15 @@ jobs:
 4. Create D1 schema and migrations
 5. Basic health endpoint
 
-### Phase 2: Benchmark Engine (MMLU-Pro First)
+### Phase 2: LiveCodeBench Engine
 
-1. Study lm-evaluation-harness dataset format and scoring
-2. Implement MMLU-Pro question loading from Hugging Face
-3. Implement MMLU-Pro scoring (10-choice accuracy)
-4. Implement rate-limited evaluation runner
+1. Fetch LiveCodeBench problems from GitHub/Hugging Face
+2. Implement problem prompt formatting
+3. Implement code execution sandbox (for pass@1 scoring)
+4. Implement rate-limited evaluation runner with sampling support
 5. Store results in D1
-6. Verify against published lm-eval results
 
-### Phase 3: Additional Benchmarks
-
-1. Implement SimpleQA (from OpenAI simple-evals)
-2. Implement LiveBench (from LiveBench GitHub)
-3. Add benchmark-specific scoring logic
-
-### Phase 4: Orchestration
+### Phase 3: Orchestration
 
 1. Set up GitHub Actions workflow for daily triggers
 2. Implement `/api/admin/run` endpoint for single model+benchmark
@@ -420,7 +383,7 @@ jobs:
 4. Implement retry logic for API failures
 5. Add cost tracking per run
 
-### Phase 5: Dashboard
+### Phase 4: Dashboard
 
 1. Basic React SPA with Vite
 2. API endpoints for results
@@ -428,7 +391,7 @@ jobs:
 4. Historical charts
 5. Comparison view
 
-### Phase 6: Polish
+### Phase 5: Polish
 
 1. Error handling and alerting
 2. Caching optimizations
@@ -518,6 +481,6 @@ if (model.output_price_per_m !== null && outputTokens > 0) {
 ## References
 
 - [llm-observatory](https://github.com/emily-flambe/llm-observatory) - Existing patterns
-- [lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness) - Benchmark framework
-- [OpenAI simple-evals](https://github.com/openai/simple-evals) - Reference implementations
+- [LiveCodeBench](https://github.com/LiveCodeBench/LiveCodeBench) - Benchmark dataset
+- [LiveCodeBench paper](https://arxiv.org/abs/2403.07974) - Benchmark methodology
 - Research docs in `docs/research/`

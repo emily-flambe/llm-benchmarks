@@ -33,11 +33,11 @@ Track Claude Opus 4.5 code generation performance over time using LiveCodeBench.
 
 🚧 **Under Development**
 
-See [docs/plans/2025-01-24-application-spec.md](docs/plans/2025-01-24-application-spec.md) for the full specification.
+See [docs/plans/2026-01-24-application-spec.md](docs/plans/2026-01-24-application-spec.md) for the full specification.
 
 ## Documentation
 
-- [Application Spec](docs/plans/2025-01-24-application-spec.md) - Full design document
+- [Application Spec](docs/plans/2026-01-24-application-spec.md) - Full design document
 - [Research: LLM Observatory Patterns](docs/research/01-llm-observatory-patterns.md) - Reusable patterns
 - [Research: Benchmark Landscape](docs/research/02-benchmark-landscape.md) - Benchmark evaluation
 - [Research: Frontier Model APIs](docs/research/03-frontier-model-apis.md) - API reference
