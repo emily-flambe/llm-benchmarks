@@ -2,6 +2,7 @@ name = "llm-benchmarks"
 main = "src/index.ts"
 compatibility_date = "2026-01-01"
 compatibility_flags = ["nodejs_compat"]
+account_id = "facf6619808dc039df729531bbb26d1d"
 
 [build]
 command = "npm run build:frontend"
@@ -19,7 +20,7 @@ run_worker_first = true
 [[d1_databases]]
 binding = "DB"
 database_name = "llm-benchmarks-db"
-database_id = "placeholder-update-after-creation"
+database_id = "1387e6df-d3a9-4b13-80d8-c01c846232a3"
 
 [observability]
 enabled = true
