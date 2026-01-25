@@ -77,6 +77,7 @@ function CustomTooltip({ active, payload, modelNames }: CustomTooltipProps) {
       {payload.map((item) => {
         const modelId = item.dataKey.replace('_score', '');
         const displayName = modelNames[modelId] || modelId;
+        const sampleSize = item.payload[`${modelId}_samples`] as number | undefined;
         return (
           <div
             key={item.dataKey}
@@ -101,6 +102,11 @@ function CustomTooltip({ active, payload, modelNames }: CustomTooltipProps) {
             <span style={{ color: item.color, fontFamily: 'var(--font-mono)', fontWeight: 500 }}>
               {item.value?.toFixed(1)}%
             </span>
+            {sampleSize !== undefined && (
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                ({sampleSize} samples)
+              </span>
+            )}
           </div>
         );
       })}
@@ -147,7 +153,7 @@ export default function TrendChart({ data, loading }: TrendChartProps) {
   });
 
   // Transform data for multi-line chart
-  // Group by date, with each model's score as a separate field
+  // Group by date, with each model's score and sample_size as separate fields
   const dateMap = new Map<string, ChartDataPoint>();
   data.forEach((d) => {
     if (!dateMap.has(d.date)) {
@@ -155,6 +161,7 @@ export default function TrendChart({ data, loading }: TrendChartProps) {
     }
     const point = dateMap.get(d.date)!;
     point[`${d.model_id}_score`] = d.score * 100;
+    point[`${d.model_id}_samples`] = d.sample_size;
   });
 
   const chartData = Array.from(dateMap.values()).sort(

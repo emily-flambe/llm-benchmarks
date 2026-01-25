@@ -69,9 +69,41 @@ export default function App() {
     loadData();
   }, [loadData]);
 
-  // Get latest run for each selected model
+  // Get aggregated data for the latest date for each selected model
+  // This matches the chart's aggregation logic (weighted average by sample size)
   const latestRunsByModel = selectedModelIds.map((modelId) => {
-    return runs.find((r) => r.model_id === modelId) || null;
+    const modelRuns = runs.filter((r) => r.model_id === modelId);
+    if (modelRuns.length === 0) return null;
+
+    // Find the latest date for this model
+    const latestDate = modelRuns[0]?.run_date.split('T')[0];
+    if (!latestDate) return null;
+
+    // Get all runs from the latest date
+    const runsOnLatestDate = modelRuns.filter(
+      (r) => r.run_date.split('T')[0] === latestDate
+    );
+
+    // Aggregate: weighted average score, sum sample size
+    const totalSamples = runsOnLatestDate.reduce((sum, r) => sum + (r.sample_size ?? 0), 0);
+    const weightedScore = runsOnLatestDate.reduce(
+      (sum, r) => sum + (r.score ?? 0) * (r.sample_size ?? 0),
+      0
+    ) / totalSamples;
+    const totalPassed = runsOnLatestDate.reduce((sum, r) => sum + (r.passed_count ?? 0), 0);
+    const totalCount = runsOnLatestDate.reduce((sum, r) => sum + (r.total_count ?? 0), 0);
+    const totalDuration = runsOnLatestDate.reduce((sum, r) => sum + (r.duration_seconds ?? 0), 0);
+
+    // Return aggregated run (use first run as base for other fields)
+    const baseRun = runsOnLatestDate[0];
+    return {
+      ...baseRun,
+      score: weightedScore,
+      sample_size: totalSamples,
+      passed_count: totalPassed,
+      total_count: totalCount,
+      duration_seconds: totalDuration,
+    };
   }).filter((r): r is BenchmarkRun => r !== null);
 
   // Get selected model names for display

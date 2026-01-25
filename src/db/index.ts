@@ -214,12 +214,13 @@ export async function getTrends(
   const dateStr = dateThreshold.toISOString().split("T")[0];
 
   // Group by date (YYYY-MM-DD) and model to aggregate multiple runs per day
+  // Use weighted average by sample size for accurate aggregation
   let query = `
     SELECT
       DATE(r.run_date) as date,
       r.model_id,
       m.display_name as model_display_name,
-      AVG(r.score) as score,
+      SUM(r.score * r.sample_size) / SUM(r.sample_size) as score,
       SUM(r.sample_size) as sample_size
     FROM benchmark_runs r
     JOIN models m ON r.model_id = m.id
