@@ -201,6 +201,23 @@ app.get("/api/auth/status", async (c) => {
 });
 
 /**
+ * GET /api/auth/logout - Clear Access cookie and redirect to login
+ * This clears any stale/expired cookies server-side (HttpOnly cookies can't be
+ * cleared by JavaScript), then redirects to the login endpoint for fresh auth.
+ */
+app.get("/api/auth/logout", async (c) => {
+  // Clear the CF_Authorization cookie by setting it to expire in the past
+  // Must match the domain/path that Access uses
+  return new Response(null, {
+    status: 302,
+    headers: {
+      "Location": "/api/auth/login",
+      "Set-Cookie": "CF_Authorization=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; HttpOnly; Secure; SameSite=Lax",
+    },
+  });
+});
+
+/**
  * GET /api/auth/login - Trigger Cloudflare Access login then redirect home
  * This endpoint is protected by Access, so visiting it triggers login.
  * After login, redirect back to the home page.
