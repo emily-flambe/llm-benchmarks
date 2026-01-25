@@ -5,7 +5,6 @@ import type { BenchmarkRun, TrendDataPoint, Model } from './types';
 import ScoreCard from './components/ScoreCard';
 import TrendChart from './components/TrendChart';
 import CostSummary from './components/CostSummary';
-import AdminPanel from './components/AdminPanel';
 import Schedules from './components/Schedules';
 import RunHistory from './components/RunHistory';
 
@@ -191,7 +190,7 @@ export default function App() {
               ) : (
                 <div className="dashboard-grid">
                   <ScoreCard runs={last24HoursRunsByModel} loading={loading} />
-                  <TrendChart data={trends} loading={loading} selectedModelIds={activeModelIds} />
+                  <TrendChart data={trends} loading={loading} />
                   <CostSummary runs={runs} loading={loading} />
                 </div>
               )
@@ -205,8 +204,6 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
-
-      <AdminPanel />
 
       {/* Toast Notification */}
       {toast && (

@@ -48,12 +48,6 @@ export interface ModelsResponse {
   models: Model[];
 }
 
-export interface CostSummaryData {
-  total_month: number;
-  average_per_run: number;
-  run_count: number;
-}
-
 // Benchmark schedules
 export interface ModelSchedule {
   id: string;
@@ -71,24 +65,4 @@ export interface ModelSchedule {
 
 export interface SchedulesResponse {
   schedules: ModelSchedule[];
-}
-
-// Container run (benchmark execution)
-export interface ContainerRun {
-  id: string;
-  model_id: string;
-  model_name: string;
-  sample_size: number | null;
-  status: 'pending' | 'running' | 'completed' | 'failed';
-  trigger_type: 'manual' | 'scheduled';
-  progress_current: number;
-  progress_total: number;
-  started_at: string | null;
-  completed_at: string | null;
-  error_message: string | null;
-  created_at: string;
-}
-
-export interface ContainerRunsResponse {
-  runs: ContainerRun[];
 }

@@ -10,13 +10,10 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "build:frontend": "vite build",
-    "build:container": "tsc -p tsconfig.container.json",
-    "build:all": "npm run build:frontend && npm run build:container",
     "db:migrate": "wrangler d1 execute llm-benchmarks-db --remote --file=./src/db/schema.sql",
     "db:migrate:local": "wrangler d1 execute llm-benchmarks-db --local --file=./src/db/schema.sql"
   },
   "dependencies": {
-    "@cloudflare/containers": "^0.0.3",
     "hono": "^4.11.4",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

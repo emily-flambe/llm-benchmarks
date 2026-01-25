@@ -3,7 +3,6 @@ import type {
   TrendsResponse,
   ModelsResponse,
   SchedulesResponse,
-  ContainerRunsResponse,
 } from './types';
 
 const API_BASE = '/api';
@@ -41,48 +40,6 @@ export interface AuthStatus {
 
 export async function getAuthStatus(): Promise<AuthStatus> {
   return fetchJson<AuthStatus>('/auth/status');
-}
-
-export interface TriggerBenchmarkParams {
-  model?: string;
-  sample_size?: string;
-}
-
-export interface TriggerBenchmarkResponse {
-  success: boolean;
-  message: string;
-  model: string;
-  sample_size: string;
-}
-
-export async function triggerBenchmark(
-  apiKey: string | null,
-  params: TriggerBenchmarkParams = {}
-): Promise<TriggerBenchmarkResponse> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-
-  // Only add Authorization header if API key is provided
-  // (Cloudflare Access JWT is automatically included by the browser)
-  if (apiKey) {
-    headers['Authorization'] = `Bearer ${apiKey}`;
-  }
-
-  const response = await fetch(`${API_BASE}/admin/trigger-benchmark`, {
-    method: 'POST',
-    headers,
-    credentials: 'include', // Include cookies for Cloudflare Access auth
-    body: JSON.stringify(params),
-  });
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data.error || `HTTP ${response.status}`);
-  }
-
-  return data;
 }
 
 // Schedule management

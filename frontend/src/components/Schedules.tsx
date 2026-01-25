@@ -7,6 +7,7 @@ import {
   toggleSchedulePause,
   updateSchedule,
   triggerRun,
+  getAuthStatus,
 } from '../api';
 import type { ModelSchedule, Model } from '../types';
 
@@ -32,6 +33,7 @@ export default function Schedules({ onRunStarted }: SchedulesProps) {
   const [models, setModels] = useState<Model[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   // Form state for creating new schedule
   const [showForm, setShowForm] = useState(false);
@@ -46,11 +48,11 @@ export default function Schedules({ onRunStarted }: SchedulesProps) {
   const [runSampleSize, setRunSampleSize] = useState('');
   const [runSubmitting, setRunSubmitting] = useState(false);
 
-  // Edit schedule modal state
-  const [editingSchedule, setEditingSchedule] = useState<ModelSchedule | null>(null);
-  const [editCron, setEditCron] = useState('');
-  const [editSampleSize, setEditSampleSize] = useState('');
-  const [editSubmitting, setEditSubmitting] = useState(false);
+  // Inline editing state
+  const [editingCronId, setEditingCronId] = useState<string | null>(null);
+  const [editingCronValue, setEditingCronValue] = useState('');
+  const [editingSampleId, setEditingSampleId] = useState<string | null>(null);
+  const [editingSampleValue, setEditingSampleValue] = useState('');
 
   const loadData = useCallback(async () => {
     try {
@@ -70,6 +72,10 @@ export default function Schedules({ onRunStarted }: SchedulesProps) {
 
   useEffect(() => {
     loadData();
+    // Check auth status
+    getAuthStatus()
+      .then((status) => setIsAuthenticated(status.authenticated))
+      .catch(() => setIsAuthenticated(false));
   }, [loadData]);
 
   // Get all active models (allow multiple schedules per model)
@@ -117,28 +123,39 @@ export default function Schedules({ onRunStarted }: SchedulesProps) {
     }
   };
 
-  const handleEditSchedule = (schedule: ModelSchedule) => {
-    setEditingSchedule(schedule);
-    setEditCron(schedule.cron_expression);
-    setEditSampleSize(schedule.sample_size?.toString() || '');
+  const handleCronClick = (schedule: ModelSchedule) => {
+    setEditingCronId(schedule.id);
+    setEditingCronValue(schedule.cron_expression);
   };
 
-  const handleSaveEdit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingSchedule || !editCron) return;
-
-    setEditSubmitting(true);
+  const handleCronSave = async (scheduleId: string) => {
+    if (!editingCronValue.trim()) {
+      setEditingCronId(null);
+      return;
+    }
     try {
-      await updateSchedule(editingSchedule.id, {
-        cron_expression: editCron,
-        sample_size: editSampleSize ? parseInt(editSampleSize) : undefined,
-      });
-      setEditingSchedule(null);
+      await updateSchedule(scheduleId, { cron_expression: editingCronValue });
+      setEditingCronId(null);
       await loadData();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to update schedule');
-    } finally {
-      setEditSubmitting(false);
+    }
+  };
+
+  const handleSampleClick = (schedule: ModelSchedule) => {
+    setEditingSampleId(schedule.id);
+    setEditingSampleValue(schedule.sample_size?.toString() || '');
+  };
+
+  const handleSampleSave = async (scheduleId: string) => {
+    try {
+      await updateSchedule(scheduleId, {
+        sample_size: editingSampleValue ? parseInt(editingSampleValue) : undefined,
+      });
+      setEditingSampleId(null);
+      await loadData();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to update schedule');
     }
   };
 
@@ -188,22 +205,24 @@ export default function Schedules({ onRunStarted }: SchedulesProps) {
       <section className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
           <h2 style={{ margin: 0 }}>Benchmark Schedules</h2>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button
-              className="btn btn-secondary"
-              onClick={() => setShowRunModal(true)}
-            >
-              Run Now
-            </button>
-            {availableModels.length > 0 && (
+          {isAuthenticated && (
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
               <button
-                className="btn btn-primary"
-                onClick={() => setShowForm(true)}
+                className="btn btn-secondary"
+                onClick={() => setShowRunModal(true)}
               >
-                Add Schedule
+                Run Now
               </button>
-            )}
-          </div>
+              {availableModels.length > 0 && (
+                <button
+                  className="btn btn-primary"
+                  onClick={() => setShowForm(true)}
+                >
+                  Add Schedule
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {schedules.length === 0 ? (
@@ -218,7 +237,7 @@ export default function Schedules({ onRunStarted }: SchedulesProps) {
                 <th>Last Run</th>
                 <th>Next Run</th>
                 <th>Status</th>
-                <th>Actions</th>
+                {isAuthenticated && <th>Actions</th>}
               </tr>
             </thead>
             <tbody>
@@ -226,9 +245,72 @@ export default function Schedules({ onRunStarted }: SchedulesProps) {
                 <tr key={schedule.id}>
                   <td>{schedule.model_name}</td>
                   <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.875rem' }}>
-                    {schedule.cron_expression}
+                    {editingCronId === schedule.id ? (
+                      <input
+                        type="text"
+                        value={editingCronValue}
+                        onChange={(e) => setEditingCronValue(e.target.value)}
+                        onBlur={() => handleCronSave(schedule.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleCronSave(schedule.id);
+                          if (e.key === 'Escape') setEditingCronId(null);
+                        }}
+                        autoFocus
+                        style={{
+                          fontFamily: 'var(--font-mono)',
+                          fontSize: '0.875rem',
+                          padding: '0.25rem 0.5rem',
+                          width: '100%',
+                          background: 'var(--bg-tertiary)',
+                          border: '1px solid var(--accent)',
+                          borderRadius: '0.25rem',
+                          color: 'var(--text-primary)',
+                        }}
+                      />
+                    ) : (
+                      <span
+                        onClick={isAuthenticated ? () => handleCronClick(schedule) : undefined}
+                        style={{ cursor: isAuthenticated ? 'pointer' : 'default', padding: '0.25rem 0' }}
+                        title={isAuthenticated ? 'Click to edit' : undefined}
+                      >
+                        {schedule.cron_expression}
+                      </span>
+                    )}
                   </td>
-                  <td>{schedule.sample_size ?? 'Full'}</td>
+                  <td>
+                    {editingSampleId === schedule.id ? (
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={editingSampleValue}
+                        onChange={(e) => setEditingSampleValue(e.target.value.replace(/\D/g, ''))}
+                        onBlur={() => handleSampleSave(schedule.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleSampleSave(schedule.id);
+                          if (e.key === 'Escape') setEditingSampleId(null);
+                        }}
+                        autoFocus
+                        placeholder="Full"
+                        style={{
+                          fontSize: '0.875rem',
+                          padding: '0.25rem 0.5rem',
+                          width: '5rem',
+                          background: 'var(--bg-tertiary)',
+                          border: '1px solid var(--accent)',
+                          borderRadius: '0.25rem',
+                          color: 'var(--text-primary)',
+                        }}
+                      />
+                    ) : (
+                      <span
+                        onClick={isAuthenticated ? () => handleSampleClick(schedule) : undefined}
+                        style={{ cursor: isAuthenticated ? 'pointer' : 'default', padding: '0.25rem 0' }}
+                        title={isAuthenticated ? 'Click to edit' : undefined}
+                      >
+                        {schedule.sample_size ?? 'Full'}
+                      </span>
+                    )}
+                  </td>
                   <td style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
                     {formatDateTime(schedule.last_run)}
                   </td>
@@ -245,28 +327,24 @@ export default function Schedules({ onRunStarted }: SchedulesProps) {
                       {schedule.is_paused ? 'Paused' : 'Active'}
                     </span>
                   </td>
-                  <td>
-                    <div style={{ display: 'flex', gap: '0.5rem' }}>
-                      <button
-                        className="btn btn-small btn-secondary"
-                        onClick={() => handleEditSchedule(schedule)}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        className="btn btn-small btn-secondary"
-                        onClick={() => handleTogglePause(schedule.id, schedule.is_paused)}
-                      >
-                        {schedule.is_paused ? 'Resume' : 'Pause'}
-                      </button>
-                      <button
-                        className="btn btn-small btn-danger"
-                        onClick={() => handleDeleteSchedule(schedule.id, schedule.model_name)}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </td>
+                  {isAuthenticated && (
+                    <td>
+                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <button
+                          className="btn btn-small btn-secondary"
+                          onClick={() => handleTogglePause(schedule.id, schedule.is_paused)}
+                        >
+                          {schedule.is_paused ? 'Resume' : 'Pause'}
+                        </button>
+                        <button
+                          className="btn btn-small btn-danger"
+                          onClick={() => handleDeleteSchedule(schedule.id, schedule.model_name)}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -405,62 +483,6 @@ export default function Schedules({ onRunStarted }: SchedulesProps) {
         </div>
       )}
 
-      {/* Edit Schedule Modal */}
-      {editingSchedule && (
-        <div className="modal-overlay" onClick={() => setEditingSchedule(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Edit Schedule - {editingSchedule.model_name}</h2>
-            <form onSubmit={handleSaveEdit}>
-              <div className="form-group">
-                <label>Cron Expression</label>
-                <input
-                  type="text"
-                  value={editCron}
-                  onChange={(e) => setEditCron(e.target.value)}
-                  placeholder="0 6 * * *"
-                  required
-                  style={{ fontFamily: 'var(--font-mono)' }}
-                />
-                <small style={{ color: 'var(--text-muted)', marginTop: '0.25rem', display: 'block' }}>
-                  e.g., "0 6 * * *" for daily at 6am UTC
-                </small>
-              </div>
-
-              <div className="form-group">
-                <label>Sample Size (optional)</label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  value={editSampleSize}
-                  onChange={(e) => {
-                    const value = e.target.value.replace(/\D/g, '');
-                    setEditSampleSize(value);
-                  }}
-                  placeholder="Leave blank for full benchmark"
-                />
-              </div>
-
-              <div className="modal-actions">
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => setEditingSchedule(null)}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn btn-primary"
-                  disabled={editSubmitting || !editCron}
-                >
-                  {editSubmitting ? 'Saving...' : 'Save Changes'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-    </div>
+      </div>
   );
 }

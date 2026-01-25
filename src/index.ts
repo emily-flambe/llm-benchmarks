@@ -176,12 +176,27 @@ async function triggerGitHubWorkflow(
   modelId: string,
   sampleSize: number,
   triggerSource: 'manual' | 'scheduled' = 'manual'
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; runId?: string }> {
   const workflowFile = MODEL_WORKFLOWS[modelId];
   if (!workflowFile) {
     return { success: false, error: `No workflow configured for model: ${modelId}` };
   }
 
+  // Get the latest run ID before triggering (to find the new one after)
+  const beforeResponse = await fetch(
+    `https://api.github.com/repos/emily-flambe/llm-benchmarks/actions/workflows/${workflowFile}/runs?per_page=1`,
+    {
+      headers: {
+        "Authorization": `Bearer ${githubToken}`,
+        "Accept": "application/vnd.github.v3+json",
+        "User-Agent": "llm-benchmarks-worker",
+      },
+    }
+  );
+  const beforeData = await beforeResponse.json<{ workflow_runs: Array<{ id: number }> }>();
+  const latestRunIdBefore = beforeData.workflow_runs?.[0]?.id;
+
+  // Trigger the workflow
   const response = await fetch(
     `https://api.github.com/repos/emily-flambe/llm-benchmarks/actions/workflows/${workflowFile}/dispatches`,
     {
@@ -208,7 +223,31 @@ async function triggerGitHubWorkflow(
     return { success: false, error: `GitHub API returned ${response.status}` };
   }
 
-  return { success: true };
+  // Poll briefly to find the new run ID
+  let runId: string | undefined;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+
+    const afterResponse = await fetch(
+      `https://api.github.com/repos/emily-flambe/llm-benchmarks/actions/workflows/${workflowFile}/runs?per_page=1`,
+      {
+        headers: {
+          "Authorization": `Bearer ${githubToken}`,
+          "Accept": "application/vnd.github.v3+json",
+          "User-Agent": "llm-benchmarks-worker",
+        },
+      }
+    );
+    const afterData = await afterResponse.json<{ workflow_runs: Array<{ id: number }> }>();
+    const latestRunIdAfter = afterData.workflow_runs?.[0]?.id;
+
+    if (latestRunIdAfter && latestRunIdAfter !== latestRunIdBefore) {
+      runId = String(latestRunIdAfter);
+      break;
+    }
+  }
+
+  return { success: true, runId };
 }
 
 // ============================================================================
@@ -397,8 +436,8 @@ app.get("/api/workflow-runs", async (c) => {
           html_url: run.html_url,
           event: run.event,
           model: metadata?.model_id || workflowToModel[run.name] || 'unknown',
-          sample_size: metadata?.sample_size?.toString() || '100',
-          trigger_source: metadata?.trigger_source || 'manual',
+          sample_size: metadata?.sample_size?.toString() || '—',
+          trigger_source: metadata?.trigger_source || '—',
         };
       })
       .filter((run) => run.model !== 'unknown');
@@ -544,10 +583,6 @@ app.post("/api/schedules", async (c) => {
     await c.env.DB.prepare(`
       INSERT INTO model_schedules (id, model_id, cron_expression, sample_size, updated_at)
       VALUES (?, ?, ?, ?, datetime('now'))
-      ON CONFLICT(model_id) DO UPDATE SET
-        cron_expression = excluded.cron_expression,
-        sample_size = excluded.sample_size,
-        updated_at = datetime('now')
     `).bind(id, body.model_id, body.cron_expression, body.sample_size ?? null).run();
 
     return c.json({ success: true, model_id: body.model_id });
@@ -690,11 +725,20 @@ app.post("/api/trigger-run", async (c) => {
     const result = await triggerGitHubWorkflow(
       c.env.GITHUB_TOKEN,
       body.model_id,
-      sampleSize
+      sampleSize,
+      'manual'
     );
 
     if (!result.success) {
       return c.json({ error: result.error }, 500);
+    }
+
+    // Write metadata to D1 immediately if we got the run ID
+    if (result.runId) {
+      await c.env.DB.prepare(`
+        INSERT OR REPLACE INTO workflow_executions (github_run_id, model_id, sample_size, trigger_source)
+        VALUES (?, ?, ?, ?)
+      `).bind(result.runId, body.model_id, sampleSize, 'manual').run();
     }
 
     return c.json({
@@ -878,16 +922,26 @@ async function runScheduledBenchmarks(env: Bindings, scheduledTime: Date): Promi
 
     console.log(`Triggering scheduled benchmark for ${schedule.model_id}`);
 
+    const sampleSize = schedule.sample_size || 100;
+
     // Trigger GitHub Actions workflow
     const result = await triggerGitHubWorkflow(
       env.GITHUB_TOKEN,
       schedule.model_id,
-      schedule.sample_size || 100,
+      sampleSize,
       'scheduled'
     );
 
     if (result.success) {
       console.log(`Successfully triggered workflow for ${schedule.model_id}`);
+
+      // Write metadata to D1 immediately if we got the run ID
+      if (result.runId) {
+        await env.DB.prepare(`
+          INSERT OR REPLACE INTO workflow_executions (github_run_id, model_id, sample_size, trigger_source)
+          VALUES (?, ?, ?, ?)
+        `).bind(result.runId, schedule.model_id, sampleSize, 'scheduled').run();
+      }
     } else {
       console.error(`Failed to trigger workflow for ${schedule.model_id}: ${result.error}`);
     }

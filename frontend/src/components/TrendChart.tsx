@@ -27,7 +27,6 @@ function getModelColor(modelId: string, index: number): string {
 interface TrendChartProps {
   data: TrendDataPoint[];
   loading?: boolean;
-  selectedModelIds?: string[];
 }
 
 function formatDate(dateStr: string): string {

@@ -93,16 +93,6 @@ export async function getModels(db: D1Database): Promise<Model[]> {
 }
 
 /**
- * Get all models (including inactive)
- */
-export async function getAllModels(db: D1Database): Promise<Model[]> {
-  const { results } = await db
-    .prepare("SELECT * FROM models ORDER BY display_name")
-    .all<Model>();
-  return results || [];
-}
-
-/**
  * Get a model by ID
  */
 export async function getModelById(

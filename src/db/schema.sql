@@ -63,21 +63,6 @@ CREATE TABLE IF NOT EXISTS model_schedules (
   updated_at TEXT DEFAULT (datetime('now'))
 );
 
--- Container benchmark runs (replaces workflow_executions for new runs)
-CREATE TABLE IF NOT EXISTS container_runs (
-  id TEXT PRIMARY KEY,
-  model_id TEXT NOT NULL REFERENCES models(id),
-  sample_size INTEGER NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending',  -- 'pending', 'running', 'completed', 'failed'
-  trigger_type TEXT NOT NULL,              -- 'manual', 'scheduled'
-  progress_current INTEGER DEFAULT 0,      -- Problems completed so far
-  progress_total INTEGER DEFAULT 0,        -- Total problems to evaluate
-  started_at TEXT,
-  completed_at TEXT,
-  error_message TEXT,
-  created_at TEXT DEFAULT (datetime('now'))
-);
-
 -- Indexes for dashboard queries
 CREATE INDEX IF NOT EXISTS idx_runs_date ON benchmark_runs(run_date DESC);
 CREATE INDEX IF NOT EXISTS idx_runs_model ON benchmark_runs(model_id, run_date DESC);
@@ -85,8 +70,6 @@ CREATE INDEX IF NOT EXISTS idx_runs_status ON benchmark_runs(status);
 CREATE INDEX IF NOT EXISTS idx_problem_results_run ON problem_results(run_id);
 CREATE INDEX IF NOT EXISTS idx_problem_results_problem ON problem_results(problem_id);
 CREATE INDEX IF NOT EXISTS idx_workflow_executions_run ON workflow_executions(github_run_id);
-CREATE INDEX IF NOT EXISTS idx_container_runs_status ON container_runs(status);
-CREATE INDEX IF NOT EXISTS idx_container_runs_model ON container_runs(model_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_model_schedules_model ON model_schedules(model_id);
 
 -- Seed default models
