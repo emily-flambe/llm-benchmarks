@@ -36,7 +36,7 @@ export default function App() {
     try {
       const [modelsData, runsData, trendsData] = await Promise.all([
         getModels(),
-        getRuns(),
+        getRuns(undefined, 100), // Get more runs for dashboard aggregation
         getTrends(),
       ]);
 

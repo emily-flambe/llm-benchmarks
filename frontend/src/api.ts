@@ -18,9 +18,16 @@ async function fetchJson<T>(url: string): Promise<T> {
   return response.json();
 }
 
-export async function getRuns(modelIds?: string[]): Promise<RunsResponse> {
-  const params = modelIds?.length ? `?model_ids=${modelIds.join(',')}` : '';
-  return fetchJson<RunsResponse>(`/runs${params}`);
+export async function getRuns(modelIds?: string[], limit?: number): Promise<RunsResponse> {
+  const searchParams = new URLSearchParams();
+  if (modelIds?.length) {
+    searchParams.set('model_ids', modelIds.join(','));
+  }
+  if (limit) {
+    searchParams.set('limit', String(limit));
+  }
+  const queryString = searchParams.toString();
+  return fetchJson<RunsResponse>(`/runs${queryString ? `?${queryString}` : ''}`);
 }
 
 export async function getTrends(modelIds?: string[]): Promise<TrendsResponse> {
