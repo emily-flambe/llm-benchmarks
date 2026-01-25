@@ -79,10 +79,13 @@ function getDuration(run: WorkflowRun): string {
   return `${diffMins}m`;
 }
 
+const PAGE_SIZE = 10;
+
 export default function WorkflowRuns() {
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     async function fetchRuns() {
@@ -138,6 +141,10 @@ export default function WorkflowRuns() {
     );
   }
 
+  const totalPages = Math.ceil(runs.length / PAGE_SIZE);
+  const startIndex = (currentPage - 1) * PAGE_SIZE;
+  const paginatedRuns = runs.slice(startIndex, startIndex + PAGE_SIZE);
+
   return (
     <div className="card full-width">
       <div className="card-header">
@@ -157,7 +164,7 @@ export default function WorkflowRuns() {
             </tr>
           </thead>
           <tbody>
-            {runs.map((run) => {
+            {paginatedRuns.map((run) => {
               const status = getStatusDisplay(run);
               return (
                 <tr key={run.id}>
@@ -186,6 +193,27 @@ export default function WorkflowRuns() {
           </tbody>
         </table>
       </div>
+      {totalPages > 1 && (
+        <div className="pagination">
+          <button
+            className="pagination-btn"
+            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+            disabled={currentPage === 1}
+          >
+            Previous
+          </button>
+          <span className="pagination-info">
+            Page {currentPage} of {totalPages}
+          </span>
+          <button
+            className="pagination-btn"
+            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+            disabled={currentPage === totalPages}
+          >
+            Next
+          </button>
+        </div>
+      )}
     </div>
   );
 }

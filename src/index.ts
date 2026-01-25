@@ -360,7 +360,7 @@ app.get("/api/workflow-runs", async (c) => {
       }>;
     }>();
 
-    // Map workflow names to model identifiers
+    // Map workflow names to model identifiers (for new model-specific workflows)
     const workflowToModel: Record<string, string> = {
       "Benchmark - Claude Opus 4.5": "claude-opus-4-5-20251101",
       "Benchmark - Claude Sonnet 4": "claude-sonnet-4-20250514",
@@ -369,22 +369,39 @@ app.get("/api/workflow-runs", async (c) => {
       "LiveCodeBench": "claude-opus-4-5-20251101", // Legacy workflow name
     };
 
-    // Extract relevant fields, deriving model from workflow name
+    // Query database for completed benchmark runs to get accurate model info
+    // This handles old runs from "Benchmark - Custom" where we can't get model from workflow name
+    const { results: dbRuns } = await c.env.DB.prepare(`
+      SELECT github_run_id, model_id, sample_size, m.display_name as model_display_name
+      FROM benchmark_runs r
+      JOIN models m ON r.model_id = m.id
+      WHERE github_run_id IS NOT NULL
+    `).all<{ github_run_id: string; model_id: string; sample_size: number; model_display_name: string }>();
+
+    const dbRunMap = new Map(dbRuns?.map((r) => [r.github_run_id, r]) || []);
+
+    // Extract relevant fields, getting model from database when available
     const runs = data.workflow_runs
       .filter((run) => run.name.startsWith("Benchmark") || run.name === "LiveCodeBench")
-      .map((run) => ({
-        id: run.id,
-        run_number: run.run_number,
-        name: run.name,
-        status: run.status,
-        conclusion: run.conclusion,
-        created_at: run.created_at,
-        updated_at: run.updated_at,
-        html_url: run.html_url,
-        event: run.event,
-        model: run.inputs?.model || workflowToModel[run.name] || 'unknown',
-        sample_size: run.inputs?.sample_size || '100',
-      }));
+      .map((run) => {
+        const dbRun = dbRunMap.get(String(run.id));
+        return {
+          id: run.id,
+          run_number: run.run_number,
+          name: run.name,
+          status: run.status,
+          conclusion: run.conclusion,
+          created_at: run.created_at,
+          updated_at: run.updated_at,
+          html_url: run.html_url,
+          event: run.event,
+          // Priority: 1) Database (most accurate), 2) Workflow name mapping, 3) unknown
+          model: dbRun?.model_id || workflowToModel[run.name] || 'unknown',
+          sample_size: dbRun?.sample_size?.toString() || '100',
+        };
+      })
+      // Filter out runs where we can't determine the model (in-progress runs from "Benchmark - Custom")
+      .filter((run) => run.model !== 'unknown');
 
     return c.json({ runs });
   } catch (error) {
