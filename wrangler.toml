@@ -25,7 +25,7 @@ database_id = "1387e6df-d3a9-4b13-80d8-c01c846232a3"
 [observability]
 enabled = true
 
-# Cron trigger for scheduled benchmarks (every minute)
+# Cron trigger for scheduled benchmarks (every minute checks schedules)
 [triggers]
 crons = ["* * * * *"]
 
@@ -38,22 +38,17 @@ class_name = "BenchmarkSchedulerDO"
 tag = "v1"
 new_classes = ["BenchmarkSchedulerDO"]
 
-# Container for running benchmarks
-[[containers]]
-class_name = "BenchmarkContainer"
-image = "./Dockerfile"
-max_instances = 4
-
-[[durable_objects.bindings]]
-name = "BENCHMARK_CONTAINER"
-class_name = "BenchmarkContainer"
-
+# v2 was container creation - keep reference
 [[migrations]]
 tag = "v2"
 new_sqlite_classes = ["BenchmarkContainer"]
 
+# v3 deletes the container class
+[[migrations]]
+tag = "v3"
+deleted_classes = ["BenchmarkContainer"]
+
 [vars]
 # API keys should be set via wrangler secret:
 # wrangler secret put ADMIN_API_KEY
-# wrangler secret put ANTHROPIC_API_KEY
-# wrangler secret put OPENAI_API_KEY
+# wrangler secret put GITHUB_TOKEN

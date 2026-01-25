@@ -1,0 +1,77 @@
+name: Benchmark - Claude Sonnet 4
+
+on:
+  workflow_dispatch:
+    inputs:
+      sample_size:
+        description: 'Number of problems (0 = full)'
+        default: '100'
+        type: string
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Register workflow execution
+        env:
+          ADMIN_API_KEY: ${{ secrets.ADMIN_API_KEY }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          BENCHMARK_MODEL: claude-sonnet-4
+          BENCHMARK_SAMPLE_SIZE: ${{ inputs.sample_size || '100' }}
+        run: |
+          curl -X POST "https://benchmarks.emilycogsdill.com/api/workflow-executions" \
+            -H "Authorization: Bearer $ADMIN_API_KEY" \
+            -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+            -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+            -H "Content-Type: application/json" \
+            -d "{\"github_run_id\": \"$GITHUB_RUN_ID\", \"model_id\": \"$BENCHMARK_MODEL\", \"sample_size\": $BENCHMARK_SAMPLE_SIZE}" \
+            --fail-with-body
+
+      - name: Run benchmark
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          BENCHMARK_MODEL: claude-sonnet-4-20250514
+          BENCHMARK_SAMPLE_SIZE: ${{ inputs.sample_size || '100' }}
+        run: |
+          python scripts/run_benchmark.py \
+            --model "$BENCHMARK_MODEL" \
+            --sample "$BENCHMARK_SAMPLE_SIZE"
+
+      - name: Upload results to API
+        env:
+          ADMIN_API_KEY: ${{ secrets.ADMIN_API_KEY }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: |
+          # Add github_run_id to results for workflow tracking
+          jq --arg run_id "$GITHUB_RUN_ID" '. + {github_run_id: $run_id}' results.json > results_with_run_id.json
+          curl -X POST "https://benchmarks.emilycogsdill.com/api/results" \
+            -H "Authorization: Bearer $ADMIN_API_KEY" \
+            -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+            -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+            -H "Content-Type: application/json" \
+            -d @results_with_run_id.json \
+            --fail-with-body
+
+      - name: Upload results artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-sonnet-results
+          path: results.json
+          retention-days: 30

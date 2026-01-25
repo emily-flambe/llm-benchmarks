@@ -2,7 +2,7 @@
  * LLM Benchmarks Cloudflare Worker API
  *
  * Stores benchmark results and serves the dashboard.
- * Includes Container-based benchmark execution and scheduling.
+ * Triggers GitHub Actions for benchmark execution.
  */
 
 import { Hono } from "hono";
@@ -21,26 +21,28 @@ import {
   type CreateProblemResultInput,
 } from "./db";
 import { BenchmarkSchedulerDO, getSchedulerDO, truncateToMinute } from "./services/scheduler-do";
-import { BenchmarkContainer, startBenchmarkInContainer, warmupContainer } from "./services/container";
 import { cronMatchesNow, describeSchedule } from "./services/cron";
 
-// Re-export Durable Objects and Container for wrangler
+// Re-export Durable Object for wrangler
 export { BenchmarkSchedulerDO } from "./services/scheduler-do";
-export { BenchmarkContainer } from "./services/container";
+
+// Model ID to GitHub Actions workflow mapping
+const MODEL_WORKFLOWS: Record<string, string> = {
+  'claude-opus-4-5': 'benchmark-opus.yml',
+  'claude-sonnet-4': 'benchmark-sonnet.yml',
+  'gpt-4-1': 'benchmark-gpt.yml',
+  'o3': 'benchmark-o3.yml',
+};
 
 // Environment bindings
 type Bindings = {
   DB: D1Database;
   ADMIN_API_KEY: string;
   GITHUB_TOKEN: string;
-  ANTHROPIC_API_KEY: string;
-  OPENAI_API_KEY: string;
-  GOOGLE_API_KEY?: string;
   CF_ACCESS_TEAM_DOMAIN: string;
   CF_ACCESS_AUD: string;
   ASSETS: Fetcher;
   BENCHMARK_SCHEDULER: DurableObjectNamespace<BenchmarkSchedulerDO>;
-  BENCHMARK_CONTAINER: DurableObjectNamespace<BenchmarkContainer>;
 };
 
 // Rate limiting state (in-memory, resets on worker restart)
@@ -82,10 +84,7 @@ function verifyAdminAuth(
 
 // Extract Access JWT from header or cookie
 function getAccessJwt(req: { header: (name: string) => string | undefined }): string | undefined {
-  // First check the header (set by Access for protected paths)
   let jwt = req.header("Cf-Access-Jwt-Assertion");
-
-  // Also check the cookie (set by Access after login, sent on all requests)
   if (!jwt) {
     const cookies = req.header("Cookie") || "";
     const match = cookies.match(/CF_Authorization=([^;]+)/);
@@ -93,7 +92,6 @@ function getAccessJwt(req: { header: (name: string) => string | undefined }): st
       jwt = match[1];
     }
   }
-
   return jwt;
 }
 
@@ -108,8 +106,6 @@ async function verifyAccessJwt(
   }
 
   try {
-    // Fetch the public keys from Cloudflare Access
-    // teamDomain is the full URL like https://emilycogsdill.cloudflareaccess.com
     const certsUrl = `${teamDomain}/cdn-cgi/access/certs`;
     const certsResponse = await fetch(certsUrl);
     if (!certsResponse.ok) {
@@ -118,20 +114,16 @@ async function verifyAccessJwt(
     }
 
     const certs = await certsResponse.json<{ keys: JsonWebKey[] }>();
-
-    // Decode the JWT header to get the key ID
     const [headerB64] = jwt.split(".");
     const header = JSON.parse(atob(headerB64.replace(/-/g, "+").replace(/_/g, "/")));
     const kid = header.kid;
 
-    // Find the matching key
     const key = certs.keys.find((k: JsonWebKey & { kid?: string }) => k.kid === kid);
     if (!key) {
       console.error("No matching key found for JWT");
       return { valid: false };
     }
 
-    // Import the key
     const cryptoKey = await crypto.subtle.importKey(
       "jwk",
       key,
@@ -140,7 +132,6 @@ async function verifyAccessJwt(
       ["verify"]
     );
 
-    // Verify the signature
     const [, payloadB64, signatureB64] = jwt.split(".");
     const signatureInput = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
     const signature = Uint8Array.from(
@@ -159,16 +150,13 @@ async function verifyAccessJwt(
       return { valid: false };
     }
 
-    // Decode and validate the payload
     const payload = JSON.parse(atob(payloadB64.replace(/-/g, "+").replace(/_/g, "/")));
 
-    // Check audience
     if (payload.aud && !payload.aud.includes(aud)) {
       console.error("JWT audience mismatch");
       return { valid: false };
     }
 
-    // Check expiration
     const now = Math.floor(Date.now() / 1000);
     if (payload.exp && payload.exp < now) {
       console.error("JWT expired");
@@ -182,13 +170,51 @@ async function verifyAccessJwt(
   }
 }
 
+// Helper to trigger GitHub Actions workflow
+async function triggerGitHubWorkflow(
+  githubToken: string,
+  modelId: string,
+  sampleSize: number
+): Promise<{ success: boolean; error?: string }> {
+  const workflowFile = MODEL_WORKFLOWS[modelId];
+  if (!workflowFile) {
+    return { success: false, error: `No workflow configured for model: ${modelId}` };
+  }
+
+  const response = await fetch(
+    `https://api.github.com/repos/emily-flambe/llm-benchmarks/actions/workflows/${workflowFile}/dispatches`,
+    {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${githubToken}`,
+        "Accept": "application/vnd.github.v3+json",
+        "User-Agent": "llm-benchmarks-worker",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        ref: "main",
+        inputs: {
+          sample_size: String(sampleSize),
+        },
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`GitHub API error for ${workflowFile}:`, response.status, errorText);
+    return { success: false, error: `GitHub API returned ${response.status}` };
+  }
+
+  return { success: true };
+}
+
 // ============================================================================
 // Health Check
 // ============================================================================
 
 app.get("/api/health", async (c) => {
   try {
-    // Quick DB check
     await c.env.DB.prepare("SELECT 1").first();
     return c.json({ status: "healthy", timestamp: new Date().toISOString() });
   } catch (error) {
@@ -199,12 +225,10 @@ app.get("/api/health", async (c) => {
   }
 });
 
-/**
- * GET /api/auth/status - Check if user is authenticated via Cloudflare Access
- *
- * This endpoint should NOT be protected by Access so it's always reachable.
- * It checks for the CF_Authorization cookie which Access sets after login.
- */
+// ============================================================================
+// Auth Endpoints
+// ============================================================================
+
 app.get("/api/auth/status", async (c) => {
   const accessJwt = getAccessJwt(c.req);
   const accessResult = await verifyAccessJwt(
@@ -220,14 +244,7 @@ app.get("/api/auth/status", async (c) => {
   });
 });
 
-/**
- * GET /api/auth/logout - Clear Access cookie and redirect to login
- * This clears any stale/expired cookies server-side (HttpOnly cookies can't be
- * cleared by JavaScript), then redirects to the login endpoint for fresh auth.
- */
 app.get("/api/auth/logout", async (c) => {
-  // Clear the CF_Authorization cookie by setting it to expire in the past
-  // Must match the domain/path that Access uses
   return new Response(null, {
     status: 302,
     headers: {
@@ -237,23 +254,16 @@ app.get("/api/auth/logout", async (c) => {
   });
 });
 
-/**
- * GET /api/auth/login - Redirect to Cloudflare Access login
- * Constructs the Access login URL and redirects user to authenticate.
- */
 app.get("/api/auth/login", async (c) => {
-  const teamDomain = c.env.CF_ACCESS_TEAM_DOMAIN; // e.g., https://emilycogsdill.cloudflareaccess.com
+  const teamDomain = c.env.CF_ACCESS_TEAM_DOMAIN;
   const aud = c.env.CF_ACCESS_AUD;
 
   if (!teamDomain || !aud) {
     return c.json({ error: "Access not configured" }, 500);
   }
 
-  // Get the current URL to redirect back after login
   const url = new URL(c.req.url);
   const redirectUrl = `${url.protocol}//${url.host}/`;
-
-  // Cloudflare Access login URL format (teamDomain already includes https://...)
   const accessLoginUrl = `${teamDomain}/cdn-cgi/access/login?kid=${aud}&redirect_url=${encodeURIComponent(redirectUrl)}`;
 
   return c.redirect(accessLoginUrl);
@@ -263,9 +273,6 @@ app.get("/api/auth/login", async (c) => {
 // Public Endpoints
 // ============================================================================
 
-/**
- * GET /api/models - Get configured models
- */
 app.get("/api/models", async (c) => {
   try {
     const models = await getModels(c.env.DB);
@@ -276,13 +283,6 @@ app.get("/api/models", async (c) => {
   }
 });
 
-/**
- * GET /api/runs - Recent runs with scores (paginated)
- * Query params:
- *   - limit: number (default 20, max 100)
- *   - offset: number (default 0)
- *   - model_ids: comma-separated model IDs to filter by
- */
 app.get("/api/runs", async (c) => {
   try {
     const limit = Math.max(1, Math.min(parseInt(c.req.query("limit") || "20") || 20, 100));
@@ -297,12 +297,7 @@ app.get("/api/runs", async (c) => {
 
     return c.json({
       runs,
-      pagination: {
-        limit,
-        offset,
-        total,
-        hasMore: offset + runs.length < total,
-      },
+      pagination: { limit, offset, total, hasMore: offset + runs.length < total },
     });
   } catch (error) {
     console.error("Error fetching runs:", error);
@@ -310,18 +305,13 @@ app.get("/api/runs", async (c) => {
   }
 });
 
-/**
- * GET /api/runs/:id - Single run details
- */
 app.get("/api/runs/:id", async (c) => {
   try {
     const id = c.req.param("id");
     const run = await getRunById(c.env.DB, id);
-
     if (!run) {
       return c.json({ error: "Run not found" }, 404);
     }
-
     return c.json({ run });
   } catch (error) {
     console.error("Error fetching run:", error);
@@ -329,19 +319,13 @@ app.get("/api/runs/:id", async (c) => {
   }
 });
 
-/**
- * GET /api/runs/:id/problems - Problem-level results for a run
- */
 app.get("/api/runs/:id/problems", async (c) => {
   try {
     const id = c.req.param("id");
-
-    // Verify run exists
     const run = await getRunById(c.env.DB, id);
     if (!run) {
       return c.json({ error: "Run not found" }, 404);
     }
-
     const problems = await getProblemResults(c.env.DB, id);
     return c.json({ run_id: id, problems });
   } catch (error) {
@@ -350,13 +334,8 @@ app.get("/api/runs/:id/problems", async (c) => {
   }
 });
 
-/**
- * GET /api/workflow-runs - Get recent GitHub Actions workflow runs
- * Returns workflow run status for the benchmark workflow
- */
 app.get("/api/workflow-runs", async (c) => {
   try {
-    // Fetch runs from all benchmark workflows
     const response = await fetch(
       "https://api.github.com/repos/emily-flambe/llm-benchmarks/actions/runs?per_page=30",
       {
@@ -376,7 +355,6 @@ app.get("/api/workflow-runs", async (c) => {
       workflow_runs: Array<{
         id: number;
         name: string;
-        display_title: string;
         status: string;
         conclusion: string | null;
         created_at: string;
@@ -384,42 +362,25 @@ app.get("/api/workflow-runs", async (c) => {
         html_url: string;
         run_number: number;
         event: string;
-        inputs?: {
-          model?: string;
-          sample_size?: string;
-        };
       }>;
     }>();
 
-    // Map workflow names to model identifiers (for new model-specific workflows)
     const workflowToModel: Record<string, string> = {
-      "Benchmark - Claude Opus 4.5": "claude-opus-4-5-20251101",
-      "Benchmark - Claude Sonnet 4": "claude-sonnet-4-20250514",
-      "Benchmark - GPT-4.1": "gpt-4.1",
+      "Benchmark - Claude Opus 4.5": "claude-opus-4-5",
+      "Benchmark - Claude Sonnet 4": "claude-sonnet-4",
+      "Benchmark - GPT-4.1": "gpt-4-1",
       "Benchmark - o3": "o3",
-      "LiveCodeBench": "claude-opus-4-5-20251101", // Legacy workflow name
     };
 
-    // Query workflow_executions table (registered at workflow start) for metadata
     const { results: executions } = await c.env.DB.prepare(`
       SELECT github_run_id, model_id, sample_size FROM workflow_executions
     `).all<{ github_run_id: string; model_id: string; sample_size: number }>();
 
-    // Also query completed benchmark_runs as fallback
-    const { results: dbRuns } = await c.env.DB.prepare(`
-      SELECT github_run_id, model_id, sample_size
-      FROM benchmark_runs
-      WHERE github_run_id IS NOT NULL
-    `).all<{ github_run_id: string; model_id: string; sample_size: number }>();
-
-    // Merge both sources: workflow_executions takes priority (registered at start)
     const metadataMap = new Map<string, { model_id: string; sample_size: number }>();
-    dbRuns?.forEach((r) => metadataMap.set(r.github_run_id, r));
-    executions?.forEach((r) => metadataMap.set(r.github_run_id, r)); // Overwrites if exists
+    executions?.forEach((r) => metadataMap.set(r.github_run_id, r));
 
-    // Extract relevant fields, getting model from database when available
     const runs = data.workflow_runs
-      .filter((run) => run.name.startsWith("Benchmark") || run.name === "LiveCodeBench")
+      .filter((run) => run.name.startsWith("Benchmark"))
       .map((run) => {
         const metadata = metadataMap.get(String(run.id));
         return {
@@ -432,12 +393,10 @@ app.get("/api/workflow-runs", async (c) => {
           updated_at: run.updated_at,
           html_url: run.html_url,
           event: run.event,
-          // Priority: 1) workflow_executions/benchmark_runs, 2) Workflow name mapping, 3) unknown
           model: metadata?.model_id || workflowToModel[run.name] || 'unknown',
           sample_size: metadata?.sample_size?.toString() || '100',
         };
       })
-      // Filter out runs where we can't determine the model (in-progress runs from "Benchmark - Custom")
       .filter((run) => run.model !== 'unknown');
 
     return c.json({ runs });
@@ -447,13 +406,7 @@ app.get("/api/workflow-runs", async (c) => {
   }
 });
 
-/**
- * POST /api/workflow-executions - Register a workflow execution at start
- * Called by GitHub Actions at the start of each benchmark workflow
- * Body: { github_run_id: string, model_id: string, sample_size: number }
- */
 app.post("/api/workflow-executions", async (c) => {
-  // Verify admin API key
   const authHeader = c.req.header("Authorization");
   const apiKey = authHeader?.replace("Bearer ", "");
 
@@ -484,12 +437,6 @@ app.post("/api/workflow-executions", async (c) => {
   }
 });
 
-/**
- * GET /api/trends - Score over time for charts (last 30 days)
- * Query params:
- *   - days: number (default 30, max 90)
- *   - model_ids: comma-separated model IDs to filter by
- */
 app.get("/api/trends", async (c) => {
   try {
     const parsedDays = parseInt(c.req.query("days") || "30");
@@ -509,9 +456,6 @@ app.get("/api/trends", async (c) => {
 // Schedule Management Endpoints
 // ============================================================================
 
-/**
- * GET /api/schedules - List all model schedules
- */
 app.get("/api/schedules", async (c) => {
   try {
     const { results } = await c.env.DB.prepare(`
@@ -551,12 +495,7 @@ app.get("/api/schedules", async (c) => {
   }
 });
 
-/**
- * POST /api/schedules - Create or update a model schedule
- * Body: { model_id: string, cron_expression: string, sample_size: number }
- */
 app.post("/api/schedules", async (c) => {
-  // Auth check - supports API key OR Cloudflare Access (header or cookie)
   const apiKeyValid = verifyAdminAuth(c.req.header("Authorization"), c.env.ADMIN_API_KEY);
   const accessJwt = getAccessJwt(c.req);
   const accessResult = await verifyAccessJwt(accessJwt, c.env.CF_ACCESS_TEAM_DOMAIN, c.env.CF_ACCESS_AUD);
@@ -576,20 +515,17 @@ app.post("/api/schedules", async (c) => {
       return c.json({ error: "Missing required fields (model_id, cron_expression)" }, 400);
     }
 
-    // Validate model exists
     const model = await getModelById(c.env.DB, body.model_id);
     if (!model) {
       return c.json({ error: `Unknown model_id: ${body.model_id}` }, 400);
     }
 
-    // Validate cron expression (basic check)
     const cronParts = body.cron_expression.trim().split(/\s+/);
     if (cronParts.length !== 5) {
       return c.json({ error: "Invalid cron expression (must be 5 fields)" }, 400);
     }
 
     const id = crypto.randomUUID();
-    // sample_size is optional - null means full benchmark
     await c.env.DB.prepare(`
       INSERT INTO model_schedules (id, model_id, cron_expression, sample_size, updated_at)
       VALUES (?, ?, ?, ?, datetime('now'))
@@ -606,11 +542,7 @@ app.post("/api/schedules", async (c) => {
   }
 });
 
-/**
- * DELETE /api/schedules/:model_id - Remove a model schedule
- */
 app.delete("/api/schedules/:model_id", async (c) => {
-  // Auth check - supports API key OR Cloudflare Access (header or cookie)
   const apiKeyValid = verifyAdminAuth(c.req.header("Authorization"), c.env.ADMIN_API_KEY);
   const accessJwt = getAccessJwt(c.req);
   const accessResult = await verifyAccessJwt(accessJwt, c.env.CF_ACCESS_TEAM_DOMAIN, c.env.CF_ACCESS_AUD);
@@ -629,12 +561,7 @@ app.delete("/api/schedules/:model_id", async (c) => {
   }
 });
 
-/**
- * PATCH /api/schedules/:model_id/pause - Pause or unpause a schedule
- * Body: { is_paused: boolean }
- */
 app.patch("/api/schedules/:model_id/pause", async (c) => {
-  // Auth check - supports API key OR Cloudflare Access (header or cookie)
   const apiKeyValid = verifyAdminAuth(c.req.header("Authorization"), c.env.ADMIN_API_KEY);
   const accessJwt = getAccessJwt(c.req);
   const accessResult = await verifyAccessJwt(accessJwt, c.env.CF_ACCESS_TEAM_DOMAIN, c.env.CF_ACCESS_AUD);
@@ -661,146 +588,26 @@ app.patch("/api/schedules/:model_id/pause", async (c) => {
 });
 
 // ============================================================================
-// Container Run Endpoints
+// Manual Trigger Endpoint
 // ============================================================================
 
 /**
- * GET /api/container-runs - List recent container benchmark runs
+ * POST /api/trigger-run - Trigger a benchmark run via GitHub Actions
+ * Body: { model_id: string, sample_size?: number }
  */
-app.get("/api/container-runs", async (c) => {
-  try {
-    const limit = Math.min(parseInt(c.req.query("limit") || "20"), 100);
-    const { results } = await c.env.DB.prepare(`
-      SELECT
-        r.id,
-        r.model_id,
-        r.sample_size,
-        r.status,
-        r.trigger_type,
-        r.progress_current,
-        r.progress_total,
-        r.started_at,
-        r.completed_at,
-        r.error_message,
-        r.created_at,
-        m.display_name as model_name
-      FROM container_runs r
-      JOIN models m ON r.model_id = m.id
-      ORDER BY r.created_at DESC
-      LIMIT ?
-    `).bind(limit).all<{
-      id: string;
-      model_id: string;
-      sample_size: number;
-      status: string;
-      trigger_type: string;
-      progress_current: number;
-      progress_total: number;
-      started_at: string | null;
-      completed_at: string | null;
-      error_message: string | null;
-      created_at: string;
-      model_name: string;
-    }>();
-
-    return c.json({ runs: results || [] });
-  } catch (error) {
-    console.error("Error fetching container runs:", error);
-    return c.json({ error: "Failed to fetch container runs" }, 500);
-  }
-});
-
-/**
- * POST /api/test-run - Test endpoint for triggering runs (no auth required)
- * DELETE THIS AFTER TESTING
- */
-app.post("/api/test-run", async (c) => {
-  try {
-    const modelId = "claude-sonnet-4";
-    const sampleSize = 1;
-
-    // Get model info
-    const model = await getModelById(c.env.DB, modelId);
-    if (!model) {
-      return c.json({ error: "Model not found" }, 404);
-    }
-
-    const runId = crypto.randomUUID();
-
-    // Create container run record
-    await c.env.DB.prepare(`
-      INSERT INTO container_runs (id, model_id, sample_size, status, trigger_type, progress_total)
-      VALUES (?, ?, ?, 'pending', 'manual', ?)
-    `).bind(runId, modelId, sampleSize, sampleSize).run();
-
-    // Get callback URL
-    const url = new URL(c.req.url);
-    const callbackUrl = `${url.protocol}//${url.host}/api/container-runs/${runId}/callback`;
-
-    console.log(`TEST RUN: Starting container for run ${runId}`);
-    console.log(`TEST RUN: Model=${modelId}, SampleSize=${sampleSize}`);
-    console.log(`TEST RUN: CallbackUrl=${callbackUrl}`);
-
-    // Start benchmark in container
-    const containerPromise = (async () => {
-      try {
-        console.log(`TEST RUN: Calling startBenchmarkInContainer...`);
-
-        await startBenchmarkInContainer(
-          c.env.BENCHMARK_CONTAINER,
-          {
-            runId,
-            modelId,
-            modelName: model.model_name,
-            provider: model.provider,
-            sampleSize,
-            callbackUrl,
-          },
-          {
-            anthropic: c.env.ANTHROPIC_API_KEY,
-            openai: c.env.OPENAI_API_KEY,
-            google: c.env.GOOGLE_API_KEY,
-          }
-        );
-
-        console.log(`TEST RUN: Container started successfully`);
-
-        await c.env.DB.prepare(`
-          UPDATE container_runs SET status = 'running', started_at = datetime('now')
-          WHERE id = ?
-        `).bind(runId).run();
-
-      } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : 'Unknown error';
-        console.error(`TEST RUN: Container startup failed:`, errorMsg);
-        await c.env.DB.prepare(`
-          UPDATE container_runs SET status = 'failed', error_message = ?
-          WHERE id = ?
-        `).bind(errorMsg, runId).run();
-      }
-    })();
-
-    c.executionCtx.waitUntil(containerPromise);
-
-    return c.json({ success: true, run_id: runId, message: "Test run started - check logs" }, 201);
-  } catch (error) {
-    console.error("TEST RUN: Error:", error);
-    return c.json({ error: "Failed to start test run" }, 500);
-  }
-});
-
-/**
- * POST /api/container-runs - Start a new benchmark run
- * Body: { model_id: string, sample_size: number }
- */
-app.post("/api/container-runs", async (c) => {
-  // Auth check - supports API key OR Cloudflare Access (header or cookie)
+app.post("/api/trigger-run", async (c) => {
   const apiKeyValid = verifyAdminAuth(c.req.header("Authorization"), c.env.ADMIN_API_KEY);
   const accessJwt = getAccessJwt(c.req);
   const accessResult = await verifyAccessJwt(accessJwt, c.env.CF_ACCESS_TEAM_DOMAIN, c.env.CF_ACCESS_AUD);
 
   if (!apiKeyValid && !accessResult.valid) {
     return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  // Rate limit: 5 triggers per hour
+  const clientIP = c.req.header("CF-Connecting-IP") || "unknown";
+  if (!checkRateLimit(`trigger:${clientIP}`, 5, 3600000)) {
+    return c.json({ error: "Rate limit exceeded. Max 5 triggers per hour." }, 429);
   }
 
   try {
@@ -813,192 +620,32 @@ app.post("/api/container-runs", async (c) => {
       return c.json({ error: "Missing required field: model_id" }, 400);
     }
 
-    // Default sample_size to full benchmark (0 means all problems)
-    const sampleSize = body.sample_size || 0;
-
-    // Validate model exists
     const model = await getModelById(c.env.DB, body.model_id);
     if (!model) {
       return c.json({ error: `Unknown model_id: ${body.model_id}` }, 400);
     }
 
-    // Create run record
-    const runId = crypto.randomUUID();
-    await c.env.DB.prepare(`
-      INSERT INTO container_runs (id, model_id, sample_size, status, trigger_type, progress_total)
-      VALUES (?, ?, ?, 'pending', 'manual', ?)
-    `).bind(runId, body.model_id, sampleSize || null, sampleSize || 0).run();
+    const sampleSize = body.sample_size || 100;
 
-    // Get callback URL for container to report back
-    const url = new URL(c.req.url);
-    const callbackUrl = `${url.protocol}//${url.host}/api/container-runs/${runId}/callback`;
+    const result = await triggerGitHubWorkflow(
+      c.env.GITHUB_TOKEN,
+      body.model_id,
+      sampleSize
+    );
 
-    // Start benchmark in container IN THE BACKGROUND with retry logic
-    // We return immediately so the UI isn't blocked
-    const containerPromise = (async () => {
-      const maxAttempts = 3;
-      let lastError = '';
-
-      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        try {
-          console.log(`Starting container for run ${runId} (attempt ${attempt}/${maxAttempts})`);
-
-          await startBenchmarkInContainer(
-            c.env.BENCHMARK_CONTAINER,
-            {
-              runId,
-              modelId: body.model_id,
-              modelName: model.model_name,
-              provider: model.provider,
-              sampleSize: sampleSize,
-              callbackUrl,
-            },
-            {
-              anthropic: c.env.ANTHROPIC_API_KEY,
-              openai: c.env.OPENAI_API_KEY,
-              google: c.env.GOOGLE_API_KEY,
-            }
-          );
-
-          // Update status to running
-          await c.env.DB.prepare(`
-            UPDATE container_runs SET status = 'running', started_at = datetime('now')
-            WHERE id = ?
-          `).bind(runId).run();
-
-          console.log(`Container started for run ${runId}`);
-          return; // Success!
-        } catch (err) {
-          lastError = err instanceof Error ? err.message : 'Unknown error';
-          console.error(`Container startup attempt ${attempt} failed:`, lastError);
-
-          if (attempt < maxAttempts) {
-            // Wait before retry (exponential backoff)
-            await new Promise(r => setTimeout(r, 2000 * attempt));
-          }
-        }
-      }
-
-      // All attempts failed
-      console.error(`Container startup failed after ${maxAttempts} attempts:`, lastError);
-      await c.env.DB.prepare(`
-        UPDATE container_runs SET status = 'failed', error_message = ?
-        WHERE id = ?
-      `).bind(`Failed after ${maxAttempts} attempts: ${lastError}`, runId).run();
-    })();
-
-    // Use waitUntil to run container startup in background
-    if (c.executionCtx && c.executionCtx.waitUntil) {
-      console.log(`Queuing container startup for run ${runId}`);
-      c.executionCtx.waitUntil(containerPromise);
-    } else {
-      // Fallback: run synchronously (will block but at least it runs)
-      console.log(`No executionCtx, running container startup synchronously for run ${runId}`);
-      await containerPromise;
+    if (!result.success) {
+      return c.json({ error: result.error }, 500);
     }
 
-    // Return immediately - run shows as "pending" in UI
-    return c.json({ success: true, run_id: runId }, 201);
+    return c.json({
+      success: true,
+      message: `Benchmark triggered for ${body.model_id} with sample size ${sampleSize}`,
+      model_id: body.model_id,
+      sample_size: sampleSize,
+    });
   } catch (error) {
-    console.error("Error starting container run:", error);
-    return c.json({ error: "Failed to start benchmark" }, 500);
-  }
-});
-
-/**
- * POST /api/container-runs/:id/callback - Callback from container to report progress/completion
- * Body: { type: 'progress' | 'complete' | 'error', ... }
- */
-app.post("/api/container-runs/:id/callback", async (c) => {
-  try {
-    const runId = c.req.param("id");
-    const body = await c.req.json<{
-      type: 'progress' | 'complete' | 'error';
-      current?: number;
-      total?: number;
-      latestResult?: { problemId: string; passed: boolean; errorType: string | null; latencyMs: number };
-      // Complete payload
-      runId?: string;
-      modelId?: string;
-      score?: number;
-      passedCount?: number;
-      totalCount?: number;
-      inputTokens?: number;
-      outputTokens?: number;
-      inputCost?: number;
-      outputCost?: number;
-      durationSeconds?: number;
-      problems?: Array<{ problemId: string; passed: boolean; errorType: string | null; latencyMs: number }>;
-      // Error payload
-      error?: string;
-    }>();
-
-    // Log all callbacks for visibility
-    console.log(`Container callback [${runId}]: ${body.type}`, JSON.stringify({
-      current: body.current,
-      total: body.total,
-      score: body.score,
-      error: body.error,
-    }));
-
-    if (body.type === 'progress') {
-      await c.env.DB.prepare(`
-        UPDATE container_runs
-        SET progress_current = ?, progress_total = ?
-        WHERE id = ?
-      `).bind(body.current || 0, body.total || 0, runId).run();
-    } else if (body.type === 'complete') {
-      // Mark container run as completed
-      await c.env.DB.prepare(`
-        UPDATE container_runs
-        SET status = 'completed', completed_at = datetime('now'),
-            progress_current = progress_total
-        WHERE id = ?
-      `).bind(runId).run();
-
-      // Create benchmark_run record with results
-      if (body.modelId && body.score !== undefined) {
-        const benchmarkRunInput: CreateRunInput = {
-          model_id: body.modelId,
-          run_date: new Date().toISOString(),
-          sample_size: body.totalCount || 0,
-          score: body.score,
-          passed_count: body.passedCount || 0,
-          total_count: body.totalCount || 0,
-          input_tokens: body.inputTokens || 0,
-          output_tokens: body.outputTokens || 0,
-          input_cost: body.inputCost || 0,
-          output_cost: body.outputCost || 0,
-          duration_seconds: body.durationSeconds || 0,
-          status: "completed",
-        };
-
-        const benchmarkRunId = await createRun(c.env.DB, benchmarkRunInput);
-
-        // Create problem results
-        if (body.problems && body.problems.length > 0) {
-          const problemInputs: CreateProblemResultInput[] = body.problems.map((p) => ({
-            run_id: benchmarkRunId,
-            problem_id: p.problemId,
-            passed: p.passed,
-            error_type: p.errorType || undefined,
-            latency_ms: p.latencyMs,
-          }));
-          await createProblemResults(c.env.DB, problemInputs);
-        }
-      }
-    } else if (body.type === 'error') {
-      await c.env.DB.prepare(`
-        UPDATE container_runs
-        SET status = 'failed', error_message = ?, completed_at = datetime('now')
-        WHERE id = ?
-      `).bind(body.error || 'Unknown error', runId).run();
-    }
-
-    return c.json({ success: true });
-  } catch (error) {
-    console.error("Error processing callback:", error);
-    return c.json({ error: "Failed to process callback" }, 500);
+    console.error("Error triggering benchmark:", error);
+    return c.json({ error: "Failed to trigger benchmark" }, 500);
   }
 });
 
@@ -1008,31 +655,8 @@ app.post("/api/container-runs/:id/callback", async (c) => {
 
 /**
  * POST /api/results - Submit run results from GitHub Actions
- *
- * Expected body:
- * {
- *   model_id: string,
- *   run_date: string (ISO date),
- *   sample_size: number,
- *   score: number (0-1),
- *   passed_count: number,
- *   total_count: number,
- *   input_tokens: number,
- *   output_tokens: number,
- *   input_cost: number,
- *   output_cost: number,
- *   duration_seconds: number,
- *   github_run_id?: string,
- *   problems: Array<{
- *     problem_id: string,
- *     passed: boolean,
- *     error_type?: string,
- *     latency_ms?: number
- *   }>
- * }
  */
 app.post("/api/results", async (c) => {
-  // Auth check - supports API key OR Cloudflare Access (header or cookie)
   const apiKeyValid = verifyAdminAuth(c.req.header("Authorization"), c.env.ADMIN_API_KEY);
   const accessJwt = getAccessJwt(c.req);
   const accessResult = await verifyAccessJwt(accessJwt, c.env.CF_ACCESS_TEAM_DOMAIN, c.env.CF_ACCESS_AUD);
@@ -1041,8 +665,7 @@ app.post("/api/results", async (c) => {
     return c.json({ error: "Unauthorized" }, 401);
   }
 
-  // Rate limit check (10 requests per minute per client IP)
-  const clientIP = c.req.header("CF-Connecting-IP") || c.req.header("X-Forwarded-For") || "unknown";
+  const clientIP = c.req.header("CF-Connecting-IP") || "unknown";
   if (!checkRateLimit(`admin:${clientIP}`, 10, 60000)) {
     return c.json({ error: "Rate limit exceeded" }, 429);
   }
@@ -1069,19 +692,10 @@ app.post("/api/results", async (c) => {
       }>;
     }>();
 
-    // Validate required fields
     const requiredFields = [
-      "model_id",
-      "run_date",
-      "sample_size",
-      "score",
-      "passed_count",
-      "total_count",
-      "input_tokens",
-      "output_tokens",
-      "input_cost",
-      "output_cost",
-      "duration_seconds",
+      "model_id", "run_date", "sample_size", "score", "passed_count",
+      "total_count", "input_tokens", "output_tokens", "input_cost",
+      "output_cost", "duration_seconds",
     ];
 
     for (const field of requiredFields) {
@@ -1090,36 +704,15 @@ app.post("/api/results", async (c) => {
       }
     }
 
-    // Validate model exists
     const model = await getModelById(c.env.DB, body.model_id);
     if (!model) {
       return c.json({ error: `Unknown model_id: ${body.model_id}` }, 400);
     }
 
-    // Validate score is between 0 and 1 (and not NaN)
     if (isNaN(body.score) || body.score < 0 || body.score > 1) {
       return c.json({ error: "Score must be between 0 and 1" }, 400);
     }
 
-    // Validate numeric fields are non-negative
-    const numericFields = {
-      sample_size: body.sample_size,
-      passed_count: body.passed_count,
-      total_count: body.total_count,
-      input_tokens: body.input_tokens,
-      output_tokens: body.output_tokens,
-      input_cost: body.input_cost,
-      output_cost: body.output_cost,
-      duration_seconds: body.duration_seconds,
-    };
-
-    for (const [field, value] of Object.entries(numericFields)) {
-      if (isNaN(value) || value < 0) {
-        return c.json({ error: `${field} must be a non-negative number` }, 400);
-      }
-    }
-
-    // Create the run
     const runInput: CreateRunInput = {
       model_id: body.model_id,
       run_date: body.run_date,
@@ -1138,124 +731,36 @@ app.post("/api/results", async (c) => {
 
     const runId = await createRun(c.env.DB, runInput);
 
-    // Create problem results if provided
     if (body.problems && body.problems.length > 0) {
-      const problemInputs: CreateProblemResultInput[] = body.problems.map(
-        (p) => ({
-          run_id: runId,
-          problem_id: p.problem_id,
-          passed: p.passed,
-          error_type: p.error_type,
-          latency_ms: p.latency_ms,
-        })
-      );
-
-      await createProblemResults(c.env.DB, problemInputs);
-    }
-
-    return c.json(
-      {
-        success: true,
+      const problemInputs: CreateProblemResultInput[] = body.problems.map((p) => ({
         run_id: runId,
-        message: `Created run with ${body.problems?.length || 0} problem results`,
-      },
-      201
-    );
-  } catch (error) {
-    console.error("Error creating run:", error);
-
-    if (error instanceof SyntaxError) {
-      return c.json({ error: "Invalid JSON body" }, 400);
-    }
-
-    return c.json({ error: "Failed to create run" }, 500);
-  }
-});
-
-/**
- * POST /api/admin/trigger-benchmark - Trigger a benchmark run via GitHub Actions
- *
- * Expected body:
- * {
- *   model?: string,       // Model to benchmark (default: claude-opus-4-5-20251101)
- *   sample_size?: string  // Number of problems (default: 100)
- * }
- */
-app.post("/api/admin/trigger-benchmark", async (c) => {
-  // Auth check - supports API key OR Cloudflare Access (header or cookie)
-  const apiKeyValid = verifyAdminAuth(c.req.header("Authorization"), c.env.ADMIN_API_KEY);
-  const accessJwt = getAccessJwt(c.req);
-  const accessResult = await verifyAccessJwt(accessJwt, c.env.CF_ACCESS_TEAM_DOMAIN, c.env.CF_ACCESS_AUD);
-
-  if (!apiKeyValid && !accessResult.valid) {
-    return c.json({ error: "Unauthorized" }, 401);
-  }
-
-  // Rate limit check (5 triggers per hour per client IP)
-  const clientIP = c.req.header("CF-Connecting-IP") || c.req.header("X-Forwarded-For") || "unknown";
-  if (!checkRateLimit(`trigger:${clientIP}`, 5, 3600000)) {
-    return c.json({ error: "Rate limit exceeded. Max 5 triggers per hour." }, 429);
-  }
-
-  try {
-    const body = await c.req.json<{
-      model?: string;
-      sample_size?: string;
-    }>().catch(() => ({ model: undefined, sample_size: undefined }));
-
-    const model = body.model || "claude-opus-4-5-20251101";
-    const sampleSize = body.sample_size || "100";
-
-    // Trigger GitHub Actions workflow via API
-    const response = await fetch(
-      "https://api.github.com/repos/emily-flambe/llm-benchmarks/actions/workflows/benchmark.yml/dispatches",
-      {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${c.env.GITHUB_TOKEN}`,
-          "Accept": "application/vnd.github.v3+json",
-          "User-Agent": "llm-benchmarks-worker",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          ref: "main",
-          inputs: {
-            model,
-            sample_size: sampleSize,
-          },
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("GitHub API error:", response.status, errorText);
-      return c.json(
-        { error: `Failed to trigger workflow: ${response.status}` },
-        500
-      );
+        problem_id: p.problem_id,
+        passed: p.passed,
+        error_type: p.error_type,
+        latency_ms: p.latency_ms,
+      }));
+      await createProblemResults(c.env.DB, problemInputs);
     }
 
     return c.json({
       success: true,
-      message: `Benchmark triggered for ${model} with sample size ${sampleSize}`,
-      model,
-      sample_size: sampleSize,
-    });
+      run_id: runId,
+      message: `Created run with ${body.problems?.length || 0} problem results`,
+    }, 201);
   } catch (error) {
-    console.error("Error triggering benchmark:", error);
-    return c.json({ error: "Failed to trigger benchmark" }, 500);
+    console.error("Error creating run:", error);
+    if (error instanceof SyntaxError) {
+      return c.json({ error: "Invalid JSON body" }, 400);
+    }
+    return c.json({ error: "Failed to create run" }, 500);
   }
 });
 
 // ============================================================================
-// Static Assets (SPA fallback handled by wrangler.toml)
+// Static Assets
 // ============================================================================
 
-// Catch-all for non-API routes - serve to assets
 app.all("*", async (c) => {
-  // Let the ASSETS binding handle static files
-  // This is configured via run_worker_first in wrangler.toml
   return c.env.ASSETS.fetch(c.req.raw);
 });
 
@@ -1264,45 +769,20 @@ app.all("*", async (c) => {
 // ============================================================================
 
 async function runScheduledBenchmarks(env: Bindings, scheduledTime: Date): Promise<void> {
-  console.log(`Running scheduled benchmarks at ${scheduledTime.toISOString()}`);
-
-  // Warmup: Keep a container warm by pinging it every minute
-  // Retry multiple times because cold starts can timeout
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      const warmupResult = await warmupContainer(env.BENCHMARK_CONTAINER, 'default');
-      if (warmupResult.success) {
-        console.log(`Container warmup successful (attempt ${attempt})`);
-        break; // Success, no need to retry
-      } else {
-        console.log(`Container warmup attempt ${attempt} failed: ${warmupResult.error}`);
-      }
-    } catch (err) {
-      console.log(`Container warmup attempt ${attempt} error: ${err instanceof Error ? err.message : 'Unknown'}`);
-    }
-    // Small delay before retry
-    if (attempt < 3) {
-      await new Promise(r => setTimeout(r, 2000));
-    }
-  }
+  console.log(`Checking schedules at ${scheduledTime.toISOString()}`);
 
   // Get all active schedules
   const { results: schedules } = await env.DB.prepare(`
     SELECT
       s.model_id,
       s.cron_expression,
-      s.sample_size,
-      m.model_name,
-      m.provider
+      s.sample_size
     FROM model_schedules s
-    JOIN models m ON s.model_id = m.id
     WHERE s.is_paused = 0
   `).all<{
     model_id: string;
     cron_expression: string;
     sample_size: number;
-    model_name: string;
-    provider: string;
   }>();
 
   if (!schedules || schedules.length === 0) {
@@ -1336,57 +816,23 @@ async function runScheduledBenchmarks(env: Bindings, scheduledTime: Date): Promi
       continue;
     }
 
-    console.log(`Starting scheduled benchmark for ${schedule.model_id}`);
+    console.log(`Triggering scheduled benchmark for ${schedule.model_id}`);
 
-    // Create run record
-    const runId = crypto.randomUUID();
-    await env.DB.prepare(`
-      INSERT INTO container_runs (id, model_id, sample_size, status, trigger_type, progress_total)
-      VALUES (?, ?, ?, 'pending', 'scheduled', ?)
-    `).bind(runId, schedule.model_id, schedule.sample_size, schedule.sample_size).run();
+    // Trigger GitHub Actions workflow
+    const result = await triggerGitHubWorkflow(
+      env.GITHUB_TOKEN,
+      schedule.model_id,
+      schedule.sample_size || 100
+    );
 
-    // Start benchmark in container
-    try {
-      // Note: In scheduled context we don't have the request URL, so use a configured base URL
-      // For now, we'll use a placeholder - in production, this should be configured
-      const callbackUrl = `https://benchmarks.emilycogsdill.com/api/container-runs/${runId}/callback`;
-
-      await startBenchmarkInContainer(
-        env.BENCHMARK_CONTAINER,
-        {
-          runId,
-          modelId: schedule.model_id,
-          modelName: schedule.model_name,
-          provider: schedule.provider,
-          sampleSize: schedule.sample_size,
-          callbackUrl,
-        },
-        {
-          anthropic: env.ANTHROPIC_API_KEY,
-          openai: env.OPENAI_API_KEY,
-          google: env.GOOGLE_API_KEY,
-        }
-      );
-
-      // Update status to running
-      await env.DB.prepare(`
-        UPDATE container_runs SET status = 'running', started_at = datetime('now')
-        WHERE id = ?
-      `).bind(runId).run();
-
-      console.log(`Started container for ${schedule.model_id}, run ${runId}`);
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
-      console.error(`Failed to start benchmark for ${schedule.model_id}:`, errorMsg);
-
-      await env.DB.prepare(`
-        UPDATE container_runs SET status = 'failed', error_message = ?
-        WHERE id = ?
-      `).bind(errorMsg, runId).run();
+    if (result.success) {
+      console.log(`Successfully triggered workflow for ${schedule.model_id}`);
+    } else {
+      console.error(`Failed to trigger workflow for ${schedule.model_id}: ${result.error}`);
     }
   }
 
-  // Cleanup old claims (older than 1 hour)
+  // Cleanup old claims
   const oneHourAgo = new Date(scheduledTime.getTime() - 60 * 60 * 1000);
   await schedulerDO.fetch('http://do/cleanup', {
     method: 'POST',
@@ -1395,7 +841,7 @@ async function runScheduledBenchmarks(env: Bindings, scheduledTime: Date): Promi
   });
 }
 
-// Export the worker with both fetch and scheduled handlers
+// Export the worker
 export default {
   fetch: app.fetch,
   async scheduled(event: ScheduledEvent, env: Bindings, ctx: ExecutionContext) {
