@@ -170,9 +170,23 @@ app.get("/api/health", async (c) => {
 
 /**
  * GET /api/auth/status - Check if user is authenticated via Cloudflare Access
+ *
+ * This endpoint should NOT be protected by Access so it's always reachable.
+ * It checks for the CF_Authorization cookie which Access sets after login.
  */
 app.get("/api/auth/status", async (c) => {
-  const accessJwt = c.req.header("Cf-Access-Jwt-Assertion");
+  // Check for JWT in header (set by Access for protected paths)
+  let accessJwt = c.req.header("Cf-Access-Jwt-Assertion");
+
+  // Also check for JWT in cookie (set by Access after login, sent on all requests)
+  if (!accessJwt) {
+    const cookies = c.req.header("Cookie") || "";
+    const match = cookies.match(/CF_Authorization=([^;]+)/);
+    if (match) {
+      accessJwt = match[1];
+    }
+  }
+
   const accessResult = await verifyAccessJwt(
     accessJwt,
     c.env.CF_ACCESS_TEAM_DOMAIN,
