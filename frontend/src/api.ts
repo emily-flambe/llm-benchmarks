@@ -1,12 +1,8 @@
 import type {
   RunsResponse,
-  RunDetailResponse,
-  ProblemsResponse,
   TrendsResponse,
   ModelsResponse,
-  WorkflowRunsResponse,
   SchedulesResponse,
-  ContainerRunsResponse,
 } from './types';
 
 const API_BASE = '/api';
@@ -27,14 +23,6 @@ export async function getRuns(modelIds?: string[]): Promise<RunsResponse> {
   return fetchJson<RunsResponse>(`/runs${params}`);
 }
 
-export async function getRun(id: string): Promise<RunDetailResponse> {
-  return fetchJson<RunDetailResponse>(`/runs/${id}`);
-}
-
-export async function getRunProblems(runId: string): Promise<ProblemsResponse> {
-  return fetchJson<ProblemsResponse>(`/runs/${runId}/problems`);
-}
-
 export async function getTrends(modelIds?: string[]): Promise<TrendsResponse> {
   const params = modelIds?.length ? `?model_ids=${modelIds.join(',')}` : '';
   return fetchJson<TrendsResponse>(`/trends${params}`);
@@ -42,10 +30,6 @@ export async function getTrends(modelIds?: string[]): Promise<TrendsResponse> {
 
 export async function getModels(): Promise<ModelsResponse> {
   return fetchJson<ModelsResponse>('/models');
-}
-
-export async function getWorkflowRuns(): Promise<WorkflowRunsResponse> {
-  return fetchJson<WorkflowRunsResponse>('/workflow-runs');
 }
 
 export interface AuthStatus {
@@ -152,10 +136,6 @@ export async function toggleSchedulePause(modelId: string, isPaused: boolean): P
 }
 
 // Container runs
-export async function getContainerRuns(): Promise<ContainerRunsResponse> {
-  return fetchJson<ContainerRunsResponse>('/container-runs');
-}
-
 export interface StartContainerRunParams {
   model_id: string;
   sample_size: number;

@@ -28,15 +28,6 @@ export interface BenchmarkRun {
   created_at: string;
 }
 
-export interface ProblemResult {
-  id: string;
-  run_id: string;
-  problem_id: string;
-  passed: boolean;
-  error_type: 'syntax' | 'runtime' | 'wrong_answer' | 'timeout' | null;
-  latency_ms: number | null;
-}
-
 export interface TrendDataPoint {
   date: string;
   model_id: string;
@@ -47,14 +38,6 @@ export interface TrendDataPoint {
 
 export interface RunsResponse {
   runs: BenchmarkRun[];
-}
-
-export interface RunDetailResponse {
-  run: BenchmarkRun;
-}
-
-export interface ProblemsResponse {
-  problems: ProblemResult[];
 }
 
 export interface TrendsResponse {
@@ -71,24 +54,6 @@ export interface CostSummaryData {
   run_count: number;
 }
 
-export interface WorkflowRun {
-  id: number;
-  run_number: number;
-  name: string;
-  status: 'queued' | 'in_progress' | 'completed' | 'waiting';
-  conclusion: 'success' | 'failure' | 'cancelled' | 'skipped' | 'timed_out' | null;
-  created_at: string;
-  updated_at: string;
-  html_url: string;
-  event: string;
-  model: string;
-  sample_size: string;
-}
-
-export interface WorkflowRunsResponse {
-  runs: WorkflowRun[];
-}
-
 // Container-based benchmark schedules
 export interface ModelSchedule {
   id: string;
@@ -103,24 +68,4 @@ export interface ModelSchedule {
 
 export interface SchedulesResponse {
   schedules: ModelSchedule[];
-}
-
-// Container benchmark runs
-export interface ContainerRun {
-  id: string;
-  model_id: string;
-  model_display_name: string;
-  sample_size: number;
-  status: 'pending' | 'running' | 'completed' | 'failed';
-  trigger_type: 'manual' | 'scheduled';
-  progress_current: number | null;
-  progress_total: number | null;
-  started_at: string | null;
-  completed_at: string | null;
-  error_message: string | null;
-  created_at: string;
-}
-
-export interface ContainerRunsResponse {
-  runs: ContainerRun[];
 }

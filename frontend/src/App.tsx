@@ -3,15 +3,12 @@ import { getRuns, getTrends, getModels } from './api';
 import type { BenchmarkRun, TrendDataPoint, Model } from './types';
 import ScoreCard from './components/ScoreCard';
 import TrendChart from './components/TrendChart';
-import RunsTable from './components/RunsTable';
 import CostSummary from './components/CostSummary';
-import RunDetails from './components/RunDetails';
 import AdminPanel from './components/AdminPanel';
 import ModelSelector from './components/ModelSelector';
-import WorkflowRuns from './components/WorkflowRuns';
 import Schedules from './components/Schedules';
 
-type TabType = 'dashboard' | 'workflows' | 'schedules';
+type TabType = 'dashboard' | 'schedules';
 
 const DEFAULT_MODEL_ID = 'claude-opus-4-5';
 
@@ -24,7 +21,6 @@ export default function App() {
   const [modelsLoading, setModelsLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedRun, setSelectedRun] = useState<BenchmarkRun | null>(null);
 
   // Fetch models on mount
   useEffect(() => {
@@ -158,12 +154,6 @@ export default function App() {
           Dashboard
         </button>
         <button
-          className={`tab-btn ${activeTab === 'workflows' ? 'active' : ''}`}
-          onClick={() => setActiveTab('workflows')}
-        >
-          Workflow Runs
-        </button>
-        <button
           className={`tab-btn ${activeTab === 'schedules' ? 'active' : ''}`}
           onClick={() => setActiveTab('schedules')}
         >
@@ -183,17 +173,13 @@ export default function App() {
               <ScoreCard runs={latestRunsByModel} loading={loading} />
               <CostSummary runs={runs} loading={loading} modelNames={selectedModelNames} />
               <TrendChart data={trends} loading={loading} selectedModelIds={selectedModelIds} />
-              <RunsTable runs={runs} loading={loading} onRowClick={setSelectedRun} showModelColumn={selectedModelIds.length > 1} />
             </div>
           )
-        ) : activeTab === 'workflows' ? (
-          <WorkflowRuns />
         ) : (
           <Schedules />
         )}
       </main>
 
-      {selectedRun && <RunDetails run={selectedRun} onClose={() => setSelectedRun(null)} />}
       <AdminPanel />
     </>
   );

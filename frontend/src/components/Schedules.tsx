@@ -1,14 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   getSchedules,
-  getContainerRuns,
   getModels,
   createSchedule,
   deleteSchedule,
   toggleSchedulePause,
   startContainerRun,
 } from '../api';
-import type { ModelSchedule, ContainerRun, Model } from '../types';
+import type { ModelSchedule, Model } from '../types';
 
 const CRON_PRESETS = [
   { label: 'Daily at 6am UTC', value: '0 6 * * *' },
@@ -23,38 +22,8 @@ function describeCron(cron: string): string {
   return cron;
 }
 
-function formatDate(dateStr: string | null): string {
-  if (!dateStr) return '-';
-  return new Date(dateStr).toLocaleString();
-}
-
-function formatProgress(run: ContainerRun): string {
-  if (run.status === 'pending') return 'Pending...';
-  if (run.status === 'failed') return 'Failed';
-  if (run.status === 'completed') return 'Completed';
-  if (run.progress_total && run.progress_total > 0) {
-    const pct = Math.round(((run.progress_current || 0) / run.progress_total) * 100);
-    return `${run.progress_current}/${run.progress_total} (${pct}%)`;
-  }
-  return 'Running...';
-}
-
-function getStatusColor(status: ContainerRun['status']): string {
-  switch (status) {
-    case 'completed':
-      return 'var(--accent)';
-    case 'failed':
-      return '#ef4444';
-    case 'running':
-      return '#3b82f6';
-    default:
-      return 'var(--text-muted)';
-  }
-}
-
 export default function Schedules() {
   const [schedules, setSchedules] = useState<ModelSchedule[]>([]);
-  const [containerRuns, setContainerRuns] = useState<ContainerRun[]>([]);
   const [models, setModels] = useState<Model[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -74,13 +43,11 @@ export default function Schedules() {
 
   const loadData = useCallback(async () => {
     try {
-      const [schedulesData, runsData, modelsData] = await Promise.all([
+      const [schedulesData, modelsData] = await Promise.all([
         getSchedules(),
-        getContainerRuns(),
         getModels(),
       ]);
       setSchedules(schedulesData.schedules);
-      setContainerRuns(runsData.runs);
       setModels(modelsData.models);
       setError(null);
     } catch (err) {
@@ -92,9 +59,6 @@ export default function Schedules() {
 
   useEffect(() => {
     loadData();
-    // Auto-refresh every 30 seconds
-    const interval = setInterval(loadData, 30000);
-    return () => clearInterval(interval);
   }, [loadData]);
 
   // Get models that don't have schedules yet
@@ -154,7 +118,7 @@ export default function Schedules() {
       });
       setShowRunModal(false);
       setRunModelId('');
-      await loadData();
+      alert('Benchmark started. Results will appear on the Dashboard when complete.');
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to start run');
     } finally {
@@ -176,11 +140,10 @@ export default function Schedules() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-      {/* Schedules Section */}
+    <div>
       <section className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-          <h2 style={{ margin: 0 }}>Model Schedules</h2>
+          <h2 style={{ margin: 0 }}>Benchmark Schedules</h2>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
             <button
               className="btn btn-secondary"
@@ -200,7 +163,7 @@ export default function Schedules() {
         </div>
 
         {schedules.length === 0 ? (
-          <p style={{ color: 'var(--text-muted)' }}>No schedules configured yet.</p>
+          <p style={{ color: 'var(--text-muted)' }}>No schedules configured. Add a schedule to run benchmarks automatically.</p>
         ) : (
           <table className="table">
             <thead>
@@ -245,63 +208,6 @@ export default function Schedules() {
                         Delete
                       </button>
                     </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
-
-      {/* Container Runs Section */}
-      <section className="card">
-        <h2 style={{ margin: '0 0 1rem 0' }}>Recent Container Runs</h2>
-        {containerRuns.length === 0 ? (
-          <p style={{ color: 'var(--text-muted)' }}>No container runs yet.</p>
-        ) : (
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Model</th>
-                <th>Sample Size</th>
-                <th>Status</th>
-                <th>Progress</th>
-                <th>Trigger</th>
-                <th>Started</th>
-              </tr>
-            </thead>
-            <tbody>
-              {containerRuns.map((run) => (
-                <tr key={run.id}>
-                  <td>{run.model_display_name}</td>
-                  <td>{run.sample_size}</td>
-                  <td>
-                    <span style={{ color: getStatusColor(run.status), fontWeight: 500 }}>
-                      {run.status.charAt(0).toUpperCase() + run.status.slice(1)}
-                    </span>
-                  </td>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.875rem' }}>
-                    {formatProgress(run)}
-                    {run.error_message && (
-                      <div style={{ color: '#ef4444', fontSize: '0.75rem', marginTop: '0.25rem' }}>
-                        {run.error_message}
-                      </div>
-                    )}
-                  </td>
-                  <td>
-                    <span
-                      style={{
-                        padding: '0.125rem 0.5rem',
-                        borderRadius: '0.25rem',
-                        background: run.trigger_type === 'manual' ? 'var(--bg-tertiary)' : 'var(--bg-secondary)',
-                        fontSize: '0.75rem',
-                      }}
-                    >
-                      {run.trigger_type}
-                    </span>
-                  </td>
-                  <td style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
-                    {formatDate(run.started_at || run.created_at)}
                   </td>
                 </tr>
               ))}

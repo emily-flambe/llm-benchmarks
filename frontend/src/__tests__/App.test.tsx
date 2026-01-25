@@ -4,21 +4,21 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import App from '../App';
 import * as api from '../api';
-import type { BenchmarkRun, TrendDataPoint } from '../types';
+import type { BenchmarkRun, TrendDataPoint, Model } from '../types';
 
 // Mock the API module
 vi.mock('../api', () => ({
   getRuns: vi.fn(),
   getTrends: vi.fn(),
-  getRunProblems: vi.fn(),
+  getModels: vi.fn(),
 }));
 
 const mockGetRuns = api.getRuns as ReturnType<typeof vi.fn>;
 const mockGetTrends = api.getTrends as ReturnType<typeof vi.fn>;
-const mockGetRunProblems = api.getRunProblems as ReturnType<typeof vi.fn>;
+const mockGetModels = api.getModels as ReturnType<typeof vi.fn>;
 
 // Mock recharts
 vi.mock('recharts', () => ({
@@ -35,6 +35,7 @@ function createMockRun(overrides: Partial<BenchmarkRun> = {}): BenchmarkRun {
   return {
     id: 'test-run-1',
     model_id: 'claude-opus-4-5',
+    model_display_name: 'Claude Opus 4.5',
     run_date: '2025-01-20T10:00:00Z',
     sample_size: 100,
     score: 0.85,
@@ -63,9 +64,24 @@ function createMockTrend(overrides: Partial<TrendDataPoint> = {}): TrendDataPoin
   };
 }
 
+function createMockModel(overrides: Partial<Model> = {}): Model {
+  return {
+    id: 'claude-opus-4-5',
+    provider: 'anthropic',
+    model_name: 'claude-opus-4-5-20251101',
+    display_name: 'Claude Opus 4.5',
+    input_price_per_m: 15,
+    output_price_per_m: 75,
+    active: true,
+    ...overrides,
+  };
+}
+
 describe('App', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    // Default mock for models
+    mockGetModels.mockResolvedValue({ models: [createMockModel()] });
   });
 
   afterEach(() => {
@@ -106,7 +122,6 @@ describe('App', () => {
         expect(screen.getByText('Latest pass@1 Score')).toBeInTheDocument();
         expect(screen.getByText(/Cost Summary/)).toBeInTheDocument();
         expect(screen.getByText('Score Trend (30 Days, UTC)')).toBeInTheDocument();
-        expect(screen.getByText('Recent Runs')).toBeInTheDocument();
       });
     });
   });
@@ -195,10 +210,9 @@ describe('App', () => {
   });
 
   describe('Latest run selection', () => {
-    it('should use first run as latest run', async () => {
+    it('should display score when runs exist for selected model', async () => {
       const runs = [
-        createMockRun({ id: 'run-1', score: 0.91 }), // Use unique score
-        createMockRun({ id: 'run-2', score: 0.82 }),
+        createMockRun({ id: 'run-1', score: 0.91, model_id: 'claude-opus-4-5' }),
       ];
       mockGetRuns.mockResolvedValue({ runs });
       mockGetTrends.mockResolvedValue({ trends: [] });
@@ -206,12 +220,11 @@ describe('App', () => {
       render(<App />);
 
       await waitFor(() => {
-        // First run's score should be in ScoreCard - verify card is rendered
+        // ScoreCard should render with score
         expect(screen.getByText('Latest pass@1 Score')).toBeInTheDocument();
+        // Score should be displayed (91%)
+        expect(screen.getByText('91.0%')).toBeInTheDocument();
       });
-      // First run's score (91%) appears in both ScoreCard and table
-      // ScoreCard uses latestRun which is runs[0]
-      expect(screen.getAllByText('91.0%').length).toBeGreaterThanOrEqual(1);
     });
 
     it('should handle empty runs array', async () => {
@@ -221,142 +234,13 @@ describe('App', () => {
       render(<App />);
 
       await waitFor(() => {
-        // Both ScoreCard and RunsTable show "No benchmark runs yet" when empty
-        // Use getAllByText since it appears in multiple places
-        const emptyStates = screen.getAllByText('No benchmark runs yet');
-        expect(emptyStates.length).toBe(2);
+        // ScoreCard shows "No benchmark runs yet" when empty
+        expect(screen.getByText('No benchmark runs yet')).toBeInTheDocument();
       });
-    });
-  });
-
-  describe('Run details modal', () => {
-    it('should open modal when table row is clicked', async () => {
-      const mockRun = createMockRun({ id: 'run-1' });
-      mockGetRuns.mockResolvedValue({ runs: [mockRun] });
-      mockGetTrends.mockResolvedValue({ trends: [] });
-      mockGetRunProblems.mockResolvedValue({ problems: [] });
-
-      render(<App />);
-
-      await waitFor(() => {
-        expect(screen.getByText('Recent Runs')).toBeInTheDocument();
-      });
-
-      // Click on a table row
-      const tableRows = document.querySelectorAll('tbody tr');
-      if (tableRows.length > 0) {
-        fireEvent.click(tableRows[0]);
-      }
-
-      await waitFor(() => {
-        expect(screen.getByText(/Run Details/)).toBeInTheDocument();
-      });
-    });
-
-    it('should close modal when close button is clicked', async () => {
-      const mockRun = createMockRun({ id: 'run-1' });
-      mockGetRuns.mockResolvedValue({ runs: [mockRun] });
-      mockGetTrends.mockResolvedValue({ trends: [] });
-      mockGetRunProblems.mockResolvedValue({ problems: [] });
-
-      render(<App />);
-
-      await waitFor(() => {
-        expect(screen.getByText('Recent Runs')).toBeInTheDocument();
-      });
-
-      // Open modal
-      const tableRows = document.querySelectorAll('tbody tr');
-      if (tableRows.length > 0) {
-        fireEvent.click(tableRows[0]);
-      }
-
-      await waitFor(() => {
-        expect(screen.getByText(/Run Details/)).toBeInTheDocument();
-      });
-
-      // Close modal
-      const closeButton = document.querySelector('.modal-close');
-      if (closeButton) {
-        fireEvent.click(closeButton);
-      }
-
-      await waitFor(() => {
-        expect(screen.queryByText(/Run Details/)).not.toBeInTheDocument();
-      });
-    });
-
-    it('should close modal when overlay is clicked', async () => {
-      const mockRun = createMockRun({ id: 'run-1' });
-      mockGetRuns.mockResolvedValue({ runs: [mockRun] });
-      mockGetTrends.mockResolvedValue({ trends: [] });
-      mockGetRunProblems.mockResolvedValue({ problems: [] });
-
-      render(<App />);
-
-      await waitFor(() => {
-        expect(screen.getByText('Recent Runs')).toBeInTheDocument();
-      });
-
-      // Open modal
-      const tableRows = document.querySelectorAll('tbody tr');
-      if (tableRows.length > 0) {
-        fireEvent.click(tableRows[0]);
-      }
-
-      await waitFor(() => {
-        expect(document.querySelector('.modal-overlay')).toBeInTheDocument();
-      });
-
-      // Click overlay
-      const overlay = document.querySelector('.modal-overlay');
-      if (overlay) {
-        fireEvent.click(overlay);
-      }
-
-      await waitFor(() => {
-        expect(screen.queryByText(/Run Details/)).not.toBeInTheDocument();
-      });
-    });
-
-    it('should not render modal when no run is selected', async () => {
-      mockGetRuns.mockResolvedValue({ runs: [createMockRun()] });
-      mockGetTrends.mockResolvedValue({ trends: [] });
-
-      render(<App />);
-
-      await waitFor(() => {
-        expect(screen.getByText('Recent Runs')).toBeInTheDocument();
-      });
-
-      // Modal should not be visible
-      expect(document.querySelector('.modal-overlay')).not.toBeInTheDocument();
     });
   });
 
   describe('Data flow', () => {
-    it('should pass runs to RunsTable', async () => {
-      // Use different scores to avoid collision with ScoreCard
-      // First run (index 0) is used for ScoreCard, scores appear in both card and table
-      const runs = [
-        createMockRun({ id: 'run-1', score: 0.85 }),
-        createMockRun({ id: 'run-2', score: 0.77 }), // Unique value not in ScoreCard
-      ];
-      mockGetRuns.mockResolvedValue({ runs });
-      mockGetTrends.mockResolvedValue({ trends: [] });
-
-      render(<App />);
-
-      await waitFor(() => {
-        // Wait for table to render
-        expect(screen.getByText('Recent Runs')).toBeInTheDocument();
-      });
-      // 85.0% appears in both ScoreCard and table (2 elements)
-      // 77.0% only appears in table (1 element)
-      expect(screen.getAllByText('85.0%').length).toBeGreaterThanOrEqual(1);
-      expect(screen.getByText('77.0%')).toBeInTheDocument();
-    });
-
     it('should pass trends to TrendChart', async () => {
       const trends = [
         createMockTrend({ date: '2025-01-18', score: 0.80 }),
@@ -374,9 +258,11 @@ describe('App', () => {
     });
 
     it('should pass runs to CostSummary', async () => {
-      // Use a date in January 2025 to match current month for cost calculations
+      // Use current month date for cost calculations
+      const now = new Date();
+      const currentMonthDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-15T12:00:00Z`;
       const runs = [
-        createMockRun({ id: 'run-1', run_date: '2025-01-20T12:00:00Z', input_cost: 1, output_cost: 2 }),
+        createMockRun({ id: 'run-1', run_date: currentMonthDate, input_cost: 1, output_cost: 2 }),
       ];
       mockGetRuns.mockResolvedValue({ runs });
       mockGetTrends.mockResolvedValue({ trends: [] });

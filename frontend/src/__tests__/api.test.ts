@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { getRuns, getRun, getRunProblems, getTrends, getModels } from '../api';
+import { getRuns, getTrends, getModels } from '../api';
 
 // Mock global fetch
 const mockFetch = vi.fn();
@@ -118,76 +118,6 @@ describe('API Client', () => {
       mockFetch.mockRejectedValueOnce(new Error('Request timeout'));
 
       await expect(getRuns()).rejects.toThrow('Request timeout');
-    });
-  });
-
-  describe('getRun', () => {
-    it('should make GET request to /api/runs/:id', async () => {
-      const mockResponse = { run: { id: 'run-123' } };
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve(mockResponse),
-      });
-
-      await getRun('run-123');
-
-      expect(mockFetch).toHaveBeenCalledWith('/api/runs/run-123', { credentials: 'include' });
-    });
-
-    it('should handle special characters in ID', async () => {
-      const mockResponse = { run: { id: 'run-with-special' } };
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve(mockResponse),
-      });
-
-      // Note: This tests raw ID passing - real impl may need URL encoding
-      await getRun('run/with/slashes');
-
-      expect(mockFetch).toHaveBeenCalledWith('/api/runs/run/with/slashes', { credentials: 'include' });
-    });
-
-    it('should throw on non-existent run', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 404,
-        json: () => Promise.resolve({ error: 'Run not found' }),
-      });
-
-      await expect(getRun('nonexistent')).rejects.toThrow('Run not found');
-    });
-  });
-
-  describe('getRunProblems', () => {
-    it('should make GET request to /api/runs/:id/problems', async () => {
-      const mockResponse = { problems: [] };
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve(mockResponse),
-      });
-
-      await getRunProblems('run-123');
-
-      expect(mockFetch).toHaveBeenCalledWith('/api/runs/run-123/problems', { credentials: 'include' });
-    });
-
-    it('should return problems array', async () => {
-      const mockProblems = {
-        problems: [
-          { id: 'p1', run_id: 'run-123', problem_id: 'LC-001', passed: true, error_type: null, latency_ms: 150 },
-          { id: 'p2', run_id: 'run-123', problem_id: 'LC-002', passed: false, error_type: 'wrong_answer', latency_ms: 200 },
-        ],
-      };
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve(mockProblems),
-      });
-
-      const result = await getRunProblems('run-123');
-
-      expect(result.problems).toHaveLength(2);
-      expect(result.problems[0].passed).toBe(true);
-      expect(result.problems[1].error_type).toBe('wrong_answer');
     });
   });
 
