@@ -754,44 +754,64 @@ app.post("/api/container-runs", async (c) => {
     const url = new URL(c.req.url);
     const callbackUrl = `${url.protocol}//${url.host}/api/container-runs/${runId}/callback`;
 
-    // Start benchmark in container
-    try {
-      await startBenchmarkInContainer(
-        c.env.BENCHMARK_CONTAINER,
-        {
-          runId,
-          modelId: body.model_id,
-          modelName: model.model_name,
-          provider: model.provider,
-          sampleSize: sampleSize,
-          callbackUrl,
-        },
-        {
-          anthropic: c.env.ANTHROPIC_API_KEY,
-          openai: c.env.OPENAI_API_KEY,
-          google: c.env.GOOGLE_API_KEY,
-        }
-      );
+    // Start benchmark in container IN THE BACKGROUND with retry logic
+    // We return immediately so the UI isn't blocked
+    const containerPromise = (async () => {
+      const maxAttempts = 3;
+      let lastError = '';
 
-      // Update status to running
-      await c.env.DB.prepare(`
-        UPDATE container_runs SET status = 'running', started_at = datetime('now')
-        WHERE id = ?
-      `).bind(runId).run();
-    } catch (err) {
-      // Update status to failed - but still return success so UI shows the run in history
-      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
-      console.error("Container startup failed:", errorMsg);
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          console.log(`Starting container for run ${runId} (attempt ${attempt}/${maxAttempts})`);
+
+          await startBenchmarkInContainer(
+            c.env.BENCHMARK_CONTAINER,
+            {
+              runId,
+              modelId: body.model_id,
+              modelName: model.model_name,
+              provider: model.provider,
+              sampleSize: sampleSize,
+              callbackUrl,
+            },
+            {
+              anthropic: c.env.ANTHROPIC_API_KEY,
+              openai: c.env.OPENAI_API_KEY,
+              google: c.env.GOOGLE_API_KEY,
+            }
+          );
+
+          // Update status to running
+          await c.env.DB.prepare(`
+            UPDATE container_runs SET status = 'running', started_at = datetime('now')
+            WHERE id = ?
+          `).bind(runId).run();
+
+          console.log(`Container started for run ${runId}`);
+          return; // Success!
+        } catch (err) {
+          lastError = err instanceof Error ? err.message : 'Unknown error';
+          console.error(`Container startup attempt ${attempt} failed:`, lastError);
+
+          if (attempt < maxAttempts) {
+            // Wait before retry (exponential backoff)
+            await new Promise(r => setTimeout(r, 2000 * attempt));
+          }
+        }
+      }
+
+      // All attempts failed
+      console.error(`Container startup failed after ${maxAttempts} attempts:`, lastError);
       await c.env.DB.prepare(`
         UPDATE container_runs SET status = 'failed', error_message = ?
         WHERE id = ?
-      `).bind(errorMsg, runId).run();
+      `).bind(`Failed after ${maxAttempts} attempts: ${lastError}`, runId).run();
+    })();
 
-      // Return the run_id so UI can navigate to Run History
-      // The failed status will be visible there
-      return c.json({ success: true, run_id: runId, warning: "Container startup failed - check Run History for details" }, 201);
-    }
+    // Use waitUntil to run container startup in background
+    c.executionCtx.waitUntil(containerPromise);
 
+    // Return immediately - run shows as "pending" in UI
     return c.json({ success: true, run_id: runId }, 201);
   } catch (error) {
     console.error("Error starting container run:", error);
@@ -1153,16 +1173,23 @@ async function runScheduledBenchmarks(env: Bindings, scheduledTime: Date): Promi
   console.log(`Running scheduled benchmarks at ${scheduledTime.toISOString()}`);
 
   // Warmup: Keep a container warm by pinging it every minute
-  // This prevents cold start timeouts when actually running benchmarks
-  try {
-    const warmupResult = await warmupContainer(env.BENCHMARK_CONTAINER, 'default');
-    if (warmupResult.success) {
-      console.log('Container warmup successful');
-    } else {
-      console.log(`Container warmup failed (expected on cold start): ${warmupResult.error}`);
+  // Retry multiple times because cold starts can timeout
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const warmupResult = await warmupContainer(env.BENCHMARK_CONTAINER, 'default');
+      if (warmupResult.success) {
+        console.log(`Container warmup successful (attempt ${attempt})`);
+        break; // Success, no need to retry
+      } else {
+        console.log(`Container warmup attempt ${attempt} failed: ${warmupResult.error}`);
+      }
+    } catch (err) {
+      console.log(`Container warmup attempt ${attempt} error: ${err instanceof Error ? err.message : 'Unknown'}`);
     }
-  } catch (err) {
-    console.log('Container warmup error (expected on first call):', err instanceof Error ? err.message : 'Unknown');
+    // Small delay before retry
+    if (attempt < 3) {
+      await new Promise(r => setTimeout(r, 2000));
+    }
   }
 
   // Get all active schedules
