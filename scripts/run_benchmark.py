@@ -133,11 +133,23 @@ def call_anthropic(client: anthropic.Anthropic, model: str, prompt: str) -> tupl
 
 def call_openai(client: openai.OpenAI, model: str, prompt: str) -> tuple[str, int, int]:
     """Call OpenAI API and return (response_text, input_tokens, output_tokens)."""
-    response = client.chat.completions.create(
-        model=model,
-        max_tokens=4096,
-        messages=[{"role": "user", "content": prompt}],
+    # Newer models (o1, o3, gpt-5+) use max_completion_tokens instead of max_tokens
+    uses_completion_tokens = (
+        model.startswith("o1") or model.startswith("o3") or model.startswith("gpt-5")
     )
+
+    if uses_completion_tokens:
+        response = client.chat.completions.create(
+            model=model,
+            max_completion_tokens=4096,
+            messages=[{"role": "user", "content": prompt}],
+        )
+    else:
+        response = client.chat.completions.create(
+            model=model,
+            max_tokens=4096,
+            messages=[{"role": "user", "content": prompt}],
+        )
     response_text = response.choices[0].message.content
     input_tokens = response.usage.prompt_tokens
     output_tokens = response.usage.completion_tokens
