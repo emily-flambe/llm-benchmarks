@@ -16,7 +16,7 @@ export interface Problem {
 }
 
 const DATASET_URL =
-  'https://huggingface.co/datasets/livecodebench/code_generation_lite/resolve/main/data/test-00000-of-00001.parquet';
+  'https://huggingface.co/datasets/livecodebench/code_generation_lite/resolve/main/test.jsonl';
 
 // Fixed seed for reproducible sampling
 const FIXED_SEED = 42;
@@ -50,7 +50,7 @@ export async function loadProblems(sampleSize: number): Promise<Problem[]> {
 
     // HuggingFace datasets API provides JSONL format
     const jsonlUrl =
-      'https://huggingface.co/datasets/livecodebench/code_generation_lite/resolve/main/data/test.jsonl';
+      'https://huggingface.co/datasets/livecodebench/code_generation_lite/resolve/main/test.jsonl';
 
     const response = await fetch(jsonlUrl);
     if (!response.ok) {

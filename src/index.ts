@@ -809,7 +809,14 @@ app.post("/api/container-runs", async (c) => {
     })();
 
     // Use waitUntil to run container startup in background
-    c.executionCtx.waitUntil(containerPromise);
+    if (c.executionCtx && c.executionCtx.waitUntil) {
+      console.log(`Queuing container startup for run ${runId}`);
+      c.executionCtx.waitUntil(containerPromise);
+    } else {
+      // Fallback: run synchronously (will block but at least it runs)
+      console.log(`No executionCtx, running container startup synchronously for run ${runId}`);
+      await containerPromise;
+    }
 
     // Return immediately - run shows as "pending" in UI
     return c.json({ success: true, run_id: runId }, 201);
