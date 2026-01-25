@@ -213,13 +213,14 @@ export async function getTrends(
   dateThreshold.setDate(dateThreshold.getDate() - days);
   const dateStr = dateThreshold.toISOString().split("T")[0];
 
+  // Group by date (YYYY-MM-DD) and model to aggregate multiple runs per day
   let query = `
     SELECT
-      r.run_date as date,
+      DATE(r.run_date) as date,
       r.model_id,
       m.display_name as model_display_name,
-      r.score,
-      r.sample_size
+      AVG(r.score) as score,
+      SUM(r.sample_size) as sample_size
     FROM benchmark_runs r
     JOIN models m ON r.model_id = m.id
     WHERE r.status = 'completed'
@@ -234,7 +235,7 @@ export async function getTrends(
     params.push(...modelIds);
   }
 
-  query += " ORDER BY r.run_date ASC, r.created_at ASC";
+  query += " GROUP BY DATE(r.run_date), r.model_id ORDER BY date ASC";
 
   const stmt = db.prepare(query);
   const { results } = await stmt.bind(...params).all<{

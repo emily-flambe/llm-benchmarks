@@ -12,7 +12,13 @@ function formatDate(dateStr: string): string {
   });
 }
 
-function formatModel(model: string): string {
+function formatModel(model: string, workflowName?: string): string {
+  // If model is unknown, try to extract from workflow name
+  if (model === 'unknown' && workflowName) {
+    const nameMatch = workflowName.match(/Benchmark - (.+)/);
+    if (nameMatch) return nameMatch[1];
+  }
+
   // Map full model names to short display names
   const modelMap: Record<string, string> = {
     'claude-opus-4-5-20251101': 'Opus 4.5',
@@ -165,7 +171,7 @@ export default function WorkflowRuns() {
                       #{run.run_number}
                     </a>
                   </td>
-                  <td className="workflow-model">{formatModel(run.model)}</td>
+                  <td className="workflow-model">{formatModel(run.model, run.name)}</td>
                   <td className="workflow-sample">{run.sample_size}</td>
                   <td>{formatDate(run.created_at)}</td>
                   <td className="workflow-duration">{getDuration(run)}</td>

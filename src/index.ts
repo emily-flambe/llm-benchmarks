@@ -325,8 +325,9 @@ app.get("/api/runs/:id/problems", async (c) => {
  */
 app.get("/api/workflow-runs", async (c) => {
   try {
+    // Fetch runs from all benchmark workflows
     const response = await fetch(
-      "https://api.github.com/repos/emily-flambe/llm-benchmarks/actions/workflows/benchmark.yml/runs?per_page=20",
+      "https://api.github.com/repos/emily-flambe/llm-benchmarks/actions/runs?per_page=30",
       {
         headers: {
           "Accept": "application/vnd.github.v3+json",
@@ -359,19 +360,31 @@ app.get("/api/workflow-runs", async (c) => {
       }>;
     }>();
 
-    // Extract relevant fields including model/sample_size from inputs
-    const runs = data.workflow_runs.map((run) => ({
-      id: run.id,
-      run_number: run.run_number,
-      status: run.status,
-      conclusion: run.conclusion,
-      created_at: run.created_at,
-      updated_at: run.updated_at,
-      html_url: run.html_url,
-      event: run.event,
-      model: run.inputs?.model || 'claude-opus-4-5-20251101',
-      sample_size: run.inputs?.sample_size || '100',
-    }));
+    // Map workflow names to model identifiers
+    const workflowToModel: Record<string, string> = {
+      "Benchmark - Claude Opus 4.5": "claude-opus-4-5-20251101",
+      "Benchmark - Claude Sonnet 4": "claude-sonnet-4-20250514",
+      "Benchmark - GPT-4.1": "gpt-4.1",
+      "Benchmark - o3": "o3",
+      "LiveCodeBench": "claude-opus-4-5-20251101", // Legacy workflow name
+    };
+
+    // Extract relevant fields, deriving model from workflow name
+    const runs = data.workflow_runs
+      .filter((run) => run.name.startsWith("Benchmark") || run.name === "LiveCodeBench")
+      .map((run) => ({
+        id: run.id,
+        run_number: run.run_number,
+        name: run.name,
+        status: run.status,
+        conclusion: run.conclusion,
+        created_at: run.created_at,
+        updated_at: run.updated_at,
+        html_url: run.html_url,
+        event: run.event,
+        model: run.inputs?.model || workflowToModel[run.name] || 'unknown',
+        sample_size: run.inputs?.sample_size || '100',
+      }));
 
     return c.json({ runs });
   } catch (error) {

@@ -1,4 +1,4 @@
-name: Benchmark - Custom
+name: Benchmark - o3
 
 on:
   workflow_dispatch:
@@ -6,10 +6,6 @@ on:
       sample_size:
         description: 'Number of problems (0 = full)'
         default: '100'
-        type: string
-      model:
-        description: 'Model to benchmark'
-        default: 'claude-opus-4-5-20251101'
         type: string
 
 jobs:
@@ -30,9 +26,8 @@ jobs:
 
       - name: Run benchmark
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          BENCHMARK_MODEL: ${{ inputs.model || 'claude-opus-4-5-20251101' }}
+          BENCHMARK_MODEL: o3
           BENCHMARK_SAMPLE_SIZE: ${{ inputs.sample_size || '100' }}
         run: |
           python scripts/run_benchmark.py \
@@ -57,6 +52,6 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: benchmark-results
+          name: benchmark-o3-results
           path: results.json
           retention-days: 30

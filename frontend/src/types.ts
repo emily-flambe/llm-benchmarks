@@ -74,6 +74,7 @@ export interface CostSummaryData {
 export interface WorkflowRun {
   id: number;
   run_number: number;
+  name: string;
   status: 'queued' | 'in_progress' | 'completed' | 'waiting';
   conclusion: 'success' | 'failure' | 'cancelled' | 'skipped' | 'timed_out' | null;
   created_at: string;
