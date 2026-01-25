@@ -8,7 +8,8 @@ interface RunDetailsProps {
 }
 
 function formatDate(dateStr: string): string {
-  const date = new Date(dateStr);
+  // Parse as UTC to avoid timezone shift
+  const date = new Date(dateStr.includes('T') ? dateStr : dateStr + 'T12:00:00Z');
   return date.toLocaleDateString('en-US', {
     weekday: 'short',
     month: 'short',
@@ -16,7 +17,8 @@ function formatDate(dateStr: string): string {
     year: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
-  });
+    timeZone: 'UTC',
+  }) + ' UTC';
 }
 
 function getErrorTypeLabel(errorType: string | null): string {

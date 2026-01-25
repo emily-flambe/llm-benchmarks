@@ -12,11 +12,13 @@ type SortField = 'run_date' | 'score' | 'sample_size' | 'cost';
 type SortDirection = 'asc' | 'desc';
 
 function formatDate(dateStr: string): string {
-  const date = new Date(dateStr);
+  // Parse as UTC to avoid timezone shift
+  const date = new Date(dateStr.includes('T') ? dateStr : dateStr + 'T12:00:00Z');
   return date.toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
+    timeZone: 'UTC',
   });
 }
 

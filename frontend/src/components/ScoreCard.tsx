@@ -6,11 +6,13 @@ interface ScoreCardProps {
 }
 
 function formatDate(dateStr: string): string {
-  const date = new Date(dateStr);
+  // Parse as UTC to avoid timezone shift
+  const date = new Date(dateStr.includes('T') ? dateStr : dateStr + 'T12:00:00Z');
   return date.toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
+    timeZone: 'UTC',
   });
 }
 
