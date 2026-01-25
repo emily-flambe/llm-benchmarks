@@ -1,6 +1,9 @@
 /**
  * Problem loader for LiveCodeBench dataset from HuggingFace
+ * Uses Python's datasets library for efficient loading
  */
+
+import { execFileSync } from 'child_process';
 
 export interface TestCase {
   input: string;
@@ -15,91 +18,64 @@ export interface Problem {
   private_test_cases: TestCase[];
 }
 
-const DATASET_URL =
-  'https://huggingface.co/datasets/livecodebench/code_generation_lite/resolve/main/test.jsonl';
+// Parse a raw problem object into our Problem interface
+function parseProblem(raw: Record<string, unknown>): Problem {
+  let publicTests: TestCase[] = [];
+  let privateTests: TestCase[] = [];
 
-// Fixed seed for reproducible sampling
-const FIXED_SEED = 42;
+  if (raw.public_test_cases) {
+    publicTests = typeof raw.public_test_cases === 'string'
+      ? JSON.parse(raw.public_test_cases as string)
+      : raw.public_test_cases as TestCase[];
+  }
 
-// Simple seeded random number generator (mulberry32)
-function seededRandom(seed: number): () => number {
-  return function () {
-    let t = (seed += 0x6d2b79f5);
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  if (raw.private_test_cases) {
+    privateTests = typeof raw.private_test_cases === 'string'
+      ? JSON.parse(raw.private_test_cases as string)
+      : raw.private_test_cases as TestCase[];
+  }
+
+  return {
+    question_id: raw.question_id as string,
+    question_content: raw.question_content as string,
+    starter_code: (raw.starter_code as string) || undefined,
+    public_test_cases: publicTests,
+    private_test_cases: privateTests,
   };
 }
 
-function shuffleArray<T>(array: T[], random: () => number): T[] {
-  const shuffled = [...array];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
-  return shuffled;
-}
-
-// Cache for loaded problems
-let cachedProblems: Problem[] | null = null;
-
 export async function loadProblems(sampleSize: number): Promise<Problem[]> {
-  // Fetch dataset if not cached
-  if (!cachedProblems) {
-    console.log('Fetching LiveCodeBench dataset from HuggingFace...');
+  console.log(`Loading ${sampleSize || 'all'} problems from LiveCodeBench using Python...`);
 
-    // HuggingFace datasets API provides JSONL format
-    const jsonlUrl =
-      'https://huggingface.co/datasets/livecodebench/code_generation_lite/resolve/main/test.jsonl';
-
-    const response = await fetch(jsonlUrl);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch dataset: ${response.status}`);
+  try {
+    // Use Python's datasets library which handles HuggingFace datasets efficiently
+    // Using execFileSync to avoid shell injection (sampleSize is validated as number)
+    const args = ['/app/scripts/load_problems.py'];
+    if (sampleSize > 0) {
+      args.push('--sample', String(sampleSize));
     }
 
-    const text = await response.text();
-    const lines = text.trim().split('\n');
+    console.log(`Running: python3 ${args.join(' ')}`);
 
-    cachedProblems = lines.map((line) => {
-      const raw = JSON.parse(line);
-
-      // Parse test cases if they're strings
-      let publicTests: TestCase[] = [];
-      let privateTests: TestCase[] = [];
-
-      if (raw.public_test_cases) {
-        publicTests = typeof raw.public_test_cases === 'string'
-          ? JSON.parse(raw.public_test_cases)
-          : raw.public_test_cases;
-      }
-
-      if (raw.private_test_cases) {
-        privateTests = typeof raw.private_test_cases === 'string'
-          ? JSON.parse(raw.private_test_cases)
-          : raw.private_test_cases;
-      }
-
-      return {
-        question_id: raw.question_id,
-        question_content: raw.question_content,
-        starter_code: raw.starter_code || undefined,
-        public_test_cases: publicTests,
-        private_test_cases: privateTests,
-      };
+    const output = execFileSync('python3', args, {
+      encoding: 'utf-8',
+      maxBuffer: 100 * 1024 * 1024, // 100MB buffer for large outputs
+      timeout: 120000, // 2 minute timeout
     });
 
-    console.log(`Loaded ${cachedProblems.length} problems`);
-  }
+    const rawProblems = JSON.parse(output) as Record<string, unknown>[];
+    const problems = rawProblems.map(parseProblem);
 
-  // Sample if needed
-  if (sampleSize > 0 && sampleSize < cachedProblems.length) {
-    const random = seededRandom(FIXED_SEED);
-    const shuffled = shuffleArray(cachedProblems, random);
-    console.log(`Sampled ${sampleSize} problems (seed=${FIXED_SEED})`);
-    return shuffled.slice(0, sampleSize);
+    console.log(`Loaded ${problems.length} problems`);
+    return problems;
+  } catch (error) {
+    const err = error as Error & { stderr?: string };
+    console.error('Failed to load problems via Python:', err.message);
+    if (err.stderr) {
+      console.error('Python stderr:', err.stderr);
+    }
+    throw new Error(`Failed to load dataset: ${err.message}`);
   }
-
-  return cachedProblems;
 }
 
 export function formatPrompt(problem: Problem): string {

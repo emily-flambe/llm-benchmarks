@@ -711,6 +711,85 @@ app.get("/api/container-runs", async (c) => {
 });
 
 /**
+ * POST /api/test-run - Test endpoint for triggering runs (no auth required)
+ * DELETE THIS AFTER TESTING
+ */
+app.post("/api/test-run", async (c) => {
+  try {
+    const modelId = "claude-sonnet-4";
+    const sampleSize = 1;
+
+    // Get model info
+    const model = await getModelById(c.env.DB, modelId);
+    if (!model) {
+      return c.json({ error: "Model not found" }, 404);
+    }
+
+    const runId = crypto.randomUUID();
+
+    // Create container run record
+    await c.env.DB.prepare(`
+      INSERT INTO container_runs (id, model_id, sample_size, status, trigger_type, progress_total)
+      VALUES (?, ?, ?, 'pending', 'manual', ?)
+    `).bind(runId, modelId, sampleSize, sampleSize).run();
+
+    // Get callback URL
+    const url = new URL(c.req.url);
+    const callbackUrl = `${url.protocol}//${url.host}/api/container-runs/${runId}/callback`;
+
+    console.log(`TEST RUN: Starting container for run ${runId}`);
+    console.log(`TEST RUN: Model=${modelId}, SampleSize=${sampleSize}`);
+    console.log(`TEST RUN: CallbackUrl=${callbackUrl}`);
+
+    // Start benchmark in container
+    const containerPromise = (async () => {
+      try {
+        console.log(`TEST RUN: Calling startBenchmarkInContainer...`);
+
+        await startBenchmarkInContainer(
+          c.env.BENCHMARK_CONTAINER,
+          {
+            runId,
+            modelId,
+            modelName: model.model_name,
+            provider: model.provider,
+            sampleSize,
+            callbackUrl,
+          },
+          {
+            anthropic: c.env.ANTHROPIC_API_KEY,
+            openai: c.env.OPENAI_API_KEY,
+            google: c.env.GOOGLE_API_KEY,
+          }
+        );
+
+        console.log(`TEST RUN: Container started successfully`);
+
+        await c.env.DB.prepare(`
+          UPDATE container_runs SET status = 'running', started_at = datetime('now')
+          WHERE id = ?
+        `).bind(runId).run();
+
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+        console.error(`TEST RUN: Container startup failed:`, errorMsg);
+        await c.env.DB.prepare(`
+          UPDATE container_runs SET status = 'failed', error_message = ?
+          WHERE id = ?
+        `).bind(errorMsg, runId).run();
+      }
+    })();
+
+    c.executionCtx.waitUntil(containerPromise);
+
+    return c.json({ success: true, run_id: runId, message: "Test run started - check logs" }, 201);
+  } catch (error) {
+    console.error("TEST RUN: Error:", error);
+    return c.json({ error: "Failed to start test run" }, 500);
+  }
+});
+
+/**
  * POST /api/container-runs - Start a new benchmark run
  * Body: { model_id: string, sample_size: number }
  */
@@ -853,6 +932,14 @@ app.post("/api/container-runs/:id/callback", async (c) => {
       // Error payload
       error?: string;
     }>();
+
+    // Log all callbacks for visibility
+    console.log(`Container callback [${runId}]: ${body.type}`, JSON.stringify({
+      current: body.current,
+      total: body.total,
+      score: body.score,
+      error: body.error,
+    }));
 
     if (body.type === 'progress') {
       await c.env.DB.prepare(`

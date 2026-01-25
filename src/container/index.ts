@@ -301,5 +301,5 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`Benchmark runner listening on port ${PORT}`);
+  console.log(`Benchmark runner v2 listening on port ${PORT}`);
 });
