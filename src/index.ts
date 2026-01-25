@@ -342,6 +342,7 @@ app.get("/api/workflow-runs", async (c) => {
       "https://api.github.com/repos/emily-flambe/llm-benchmarks/actions/runs?per_page=30",
       {
         headers: {
+          "Authorization": `Bearer ${c.env.GITHUB_TOKEN}`,
           "Accept": "application/vnd.github.v3+json",
           "User-Agent": "llm-benchmarks-worker",
         },
