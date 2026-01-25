@@ -10,7 +10,11 @@ import {
 import type { ModelSchedule, Model } from '../types';
 
 
-export default function Schedules() {
+interface SchedulesProps {
+  onRunStarted?: () => void;
+}
+
+export default function Schedules({ onRunStarted }: SchedulesProps) {
   const [schedules, setSchedules] = useState<ModelSchedule[]>([]);
   const [models, setModels] = useState<Model[]>([]);
   const [loading, setLoading] = useState(true);
@@ -109,7 +113,10 @@ export default function Schedules() {
       setShowRunModal(false);
       setRunModelId('');
       setRunSampleSize('');
-      alert('Benchmark started. Results will appear on the Dashboard when complete.');
+      // Notify parent to switch to Run History tab
+      if (onRunStarted) {
+        onRunStarted();
+      }
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to start run');
     } finally {

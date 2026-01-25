@@ -727,12 +727,15 @@ app.post("/api/container-runs", async (c) => {
   try {
     const body = await c.req.json<{
       model_id: string;
-      sample_size: number;
+      sample_size?: number;
     }>();
 
-    if (!body.model_id || !body.sample_size) {
-      return c.json({ error: "Missing required fields" }, 400);
+    if (!body.model_id) {
+      return c.json({ error: "Missing required field: model_id" }, 400);
     }
+
+    // Default sample_size to full benchmark (0 means all problems)
+    const sampleSize = body.sample_size || 0;
 
     // Validate model exists
     const model = await getModelById(c.env.DB, body.model_id);
@@ -745,7 +748,7 @@ app.post("/api/container-runs", async (c) => {
     await c.env.DB.prepare(`
       INSERT INTO container_runs (id, model_id, sample_size, status, trigger_type, progress_total)
       VALUES (?, ?, ?, 'pending', 'manual', ?)
-    `).bind(runId, body.model_id, body.sample_size, body.sample_size).run();
+    `).bind(runId, body.model_id, sampleSize || null, sampleSize || 0).run();
 
     // Get callback URL for container to report back
     const url = new URL(c.req.url);
@@ -760,7 +763,7 @@ app.post("/api/container-runs", async (c) => {
           modelId: body.model_id,
           modelName: model.model_name,
           provider: model.provider,
-          sampleSize: body.sample_size,
+          sampleSize: sampleSize,
           callbackUrl,
         },
         {
@@ -776,14 +779,17 @@ app.post("/api/container-runs", async (c) => {
         WHERE id = ?
       `).bind(runId).run();
     } catch (err) {
-      // Update status to failed
+      // Update status to failed - but still return success so UI shows the run in history
       const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      console.error("Container startup failed:", errorMsg);
       await c.env.DB.prepare(`
         UPDATE container_runs SET status = 'failed', error_message = ?
         WHERE id = ?
       `).bind(errorMsg, runId).run();
 
-      return c.json({ error: `Failed to start container: ${errorMsg}` }, 500);
+      // Return the run_id so UI can navigate to Run History
+      // The failed status will be visible there
+      return c.json({ success: true, run_id: runId, warning: "Container startup failed - check Run History for details" }, 201);
     }
 
     return c.json({ success: true, run_id: runId }, 201);

@@ -184,7 +184,7 @@ export default function App() {
         ) : activeTab === 'runs' ? (
           <RunHistory />
         ) : (
-          <Schedules />
+          <Schedules onRunStarted={() => setActiveTab('runs')} />
         )}
       </main>
 

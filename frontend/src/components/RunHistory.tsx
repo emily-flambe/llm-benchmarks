@@ -100,10 +100,96 @@ function ProgressBar({ current, total }: { current: number; total: number }) {
   );
 }
 
+function RunRow({ run, isExpanded, onToggle }: { run: ContainerRun; isExpanded: boolean; onToggle: () => void }) {
+  const hasDetails = run.error_message || run.status === 'failed';
+
+  return (
+    <>
+      <tr
+        onClick={hasDetails ? onToggle : undefined}
+        style={{ cursor: hasDetails ? 'pointer' : 'default' }}
+      >
+        <td style={{ fontWeight: 500 }}>
+          {hasDetails && (
+            <span style={{ marginRight: '0.5rem', color: 'var(--text-muted)' }}>
+              {isExpanded ? '▼' : '▶'}
+            </span>
+          )}
+          {run.model_name}
+        </td>
+        <td>
+          <StatusBadge status={run.status} />
+        </td>
+        <td style={{ minWidth: '120px' }}>
+          {run.status === 'running' || run.status === 'completed' ? (
+            <ProgressBar current={run.progress_current} total={run.progress_total} />
+          ) : run.status === 'failed' ? (
+            <span style={{ fontSize: '0.75rem', color: '#ef4444' }}>
+              Click to view error
+            </span>
+          ) : (
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>--</span>
+          )}
+        </td>
+        <td>
+          <span
+            style={{
+              fontSize: '0.75rem',
+              color: 'var(--text-muted)',
+              textTransform: 'capitalize',
+            }}
+          >
+            {run.trigger_type}
+          </span>
+        </td>
+        <td style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+          {formatTime(run.started_at || run.created_at)}
+        </td>
+        <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.875rem' }}>
+          {formatDuration(run.started_at, run.completed_at)}
+        </td>
+      </tr>
+      {isExpanded && hasDetails && (
+        <tr>
+          <td
+            colSpan={6}
+            style={{
+              backgroundColor: 'var(--bg-tertiary)',
+              padding: '1rem',
+            }}
+          >
+            <div style={{ fontSize: '0.8125rem' }}>
+              <strong style={{ color: 'var(--text-secondary)' }}>Error Details:</strong>
+              <pre
+                style={{
+                  marginTop: '0.5rem',
+                  padding: '0.75rem',
+                  backgroundColor: 'var(--bg-secondary)',
+                  borderRadius: '0.375rem',
+                  border: '1px solid var(--border)',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                  color: '#ef4444',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '0.75rem',
+                  margin: '0.5rem 0 0 0',
+                }}
+              >
+                {run.error_message || 'Unknown error'}
+              </pre>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
 export default function RunHistory() {
   const [runs, setRuns] = useState<ContainerRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
   const loadRuns = useCallback(async () => {
     try {
@@ -127,6 +213,18 @@ export default function RunHistory() {
 
     return () => clearInterval(interval);
   }, [loadRuns]);
+
+  const toggleRow = (id: string) => {
+    setExpandedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
 
   if (loading) {
     return (
@@ -181,44 +279,12 @@ export default function RunHistory() {
             </thead>
             <tbody>
               {runs.map((run) => (
-                <tr key={run.id}>
-                  <td style={{ fontWeight: 500 }}>{run.model_name}</td>
-                  <td>
-                    <StatusBadge status={run.status} />
-                  </td>
-                  <td style={{ minWidth: '120px' }}>
-                    {run.status === 'running' || run.status === 'completed' ? (
-                      <ProgressBar current={run.progress_current} total={run.progress_total} />
-                    ) : run.status === 'failed' ? (
-                      <span
-                        style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}
-                        title={run.error_message || 'Unknown error'}
-                      >
-                        {run.error_message?.slice(0, 30) || 'Error'}
-                        {run.error_message && run.error_message.length > 30 ? '...' : ''}
-                      </span>
-                    ) : (
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>--</span>
-                    )}
-                  </td>
-                  <td>
-                    <span
-                      style={{
-                        fontSize: '0.75rem',
-                        color: 'var(--text-muted)',
-                        textTransform: 'capitalize',
-                      }}
-                    >
-                      {run.trigger_type}
-                    </span>
-                  </td>
-                  <td style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-                    {formatTime(run.started_at || run.created_at)}
-                  </td>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.875rem' }}>
-                    {formatDuration(run.started_at, run.completed_at)}
-                  </td>
-                </tr>
+                <RunRow
+                  key={run.id}
+                  run={run}
+                  isExpanded={expandedRows.has(run.id)}
+                  onToggle={() => toggleRow(run.id)}
+                />
               ))}
             </tbody>
           </table>
