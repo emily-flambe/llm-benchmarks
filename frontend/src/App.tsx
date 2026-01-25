@@ -9,6 +9,11 @@ import AdminPanel from './components/AdminPanel';
 import Schedules from './components/Schedules';
 import RunHistory from './components/RunHistory';
 
+interface Toast {
+  message: string;
+  type: 'success' | 'error';
+}
+
 export default function App() {
   const navigate = useNavigate();
   const [models, setModels] = useState<Model[]>([]);
@@ -17,6 +22,12 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
+  const [toast, setToast] = useState<Toast | null>(null);
+
+  const showToast = useCallback((message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  }, []);
 
   // Fetch all data on mount
   const loadData = useCallback(async () => {
@@ -187,12 +198,22 @@ export default function App() {
             }
           />
           <Route path="/runs" element={<RunHistory />} />
-          <Route path="/schedules" element={<Schedules onRunStarted={() => navigate('/runs')} />} />
+          <Route path="/schedules" element={<Schedules onRunStarted={(message) => {
+            navigate('/runs');
+            if (message) showToast(message);
+          }} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
 
       <AdminPanel />
+
+      {/* Toast Notification */}
+      {toast && (
+        <div className={`toast toast-${toast.type}`}>
+          {toast.message}
+        </div>
+      )}
     </>
   );
 }

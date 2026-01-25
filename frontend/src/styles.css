@@ -145,7 +145,7 @@ body {
 
 .tab-btn {
   padding: 0.75rem 1.25rem;
-  font-size: 0.875rem;
+  font-size: 1rem;
   font-weight: 500;
   font-family: inherit;
   background: none;
@@ -155,10 +155,12 @@ body {
   cursor: pointer;
   transition: all 0.15s ease;
   margin-bottom: -1px;
+  text-decoration: none;
 }
 
 .tab-btn:hover {
   color: var(--text-secondary);
+  text-decoration: none;
 }
 
 .tab-btn.active {
@@ -1216,4 +1218,51 @@ tr.clickable {
   font-size: 0.75rem;
   color: var(--text-muted);
   margin-top: 0.25rem;
+}
+
+/* Toast Notifications */
+.toast {
+  position: fixed;
+  top: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.875rem 1.5rem;
+  border-radius: 0.5rem;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  z-index: 100;
+  animation: toast-in 0.3s ease, toast-out 0.3s ease 3.7s forwards;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.toast-success {
+  background-color: var(--accent);
+  color: var(--bg-primary);
+}
+
+.toast-error {
+  background-color: var(--error);
+  color: white;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-1rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+@keyframes toast-out {
+  from {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-1rem);
+  }
 }

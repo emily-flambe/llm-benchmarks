@@ -5,13 +5,26 @@ import {
   createSchedule,
   deleteSchedule,
   toggleSchedulePause,
-  startContainerRun,
+  updateSchedule,
+  triggerRun,
 } from '../api';
 import type { ModelSchedule, Model } from '../types';
 
 
 interface SchedulesProps {
-  onRunStarted?: () => void;
+  onRunStarted?: (message?: string) => void;
+}
+
+function formatDateTime(isoString: string | null): string {
+  if (!isoString) return '—';
+  const date = new Date(isoString);
+  return date.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
 }
 
 export default function Schedules({ onRunStarted }: SchedulesProps) {
@@ -33,6 +46,12 @@ export default function Schedules({ onRunStarted }: SchedulesProps) {
   const [runSampleSize, setRunSampleSize] = useState('');
   const [runSubmitting, setRunSubmitting] = useState(false);
 
+  // Edit schedule modal state
+  const [editingSchedule, setEditingSchedule] = useState<ModelSchedule | null>(null);
+  const [editCron, setEditCron] = useState('');
+  const [editSampleSize, setEditSampleSize] = useState('');
+  const [editSubmitting, setEditSubmitting] = useState(false);
+
   const loadData = useCallback(async () => {
     try {
       const [schedulesData, modelsData] = await Promise.all([
@@ -53,10 +72,8 @@ export default function Schedules({ onRunStarted }: SchedulesProps) {
     loadData();
   }, [loadData]);
 
-  // Get models that don't have schedules yet
-  const availableModels = models.filter(
-    (m) => m.active && !schedules.some((s) => s.model_id === m.id)
-  );
+  // Get all active models (allow multiple schedules per model)
+  const availableModels = models.filter((m) => m.active);
 
   const handleCreateSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -81,22 +98,47 @@ export default function Schedules({ onRunStarted }: SchedulesProps) {
     }
   };
 
-  const handleDeleteSchedule = async (modelId: string, modelName: string) => {
+  const handleDeleteSchedule = async (scheduleId: string, modelName: string) => {
     if (!confirm(`Delete schedule for ${modelName}?`)) return;
     try {
-      await deleteSchedule(modelId);
+      await deleteSchedule(scheduleId);
       await loadData();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to delete schedule');
     }
   };
 
-  const handleTogglePause = async (modelId: string, currentlyPaused: boolean) => {
+  const handleTogglePause = async (scheduleId: string, currentlyPaused: boolean) => {
     try {
-      await toggleSchedulePause(modelId, !currentlyPaused);
+      await toggleSchedulePause(scheduleId, !currentlyPaused);
       await loadData();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to update schedule');
+    }
+  };
+
+  const handleEditSchedule = (schedule: ModelSchedule) => {
+    setEditingSchedule(schedule);
+    setEditCron(schedule.cron_expression);
+    setEditSampleSize(schedule.sample_size?.toString() || '');
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSchedule || !editCron) return;
+
+    setEditSubmitting(true);
+    try {
+      await updateSchedule(editingSchedule.id, {
+        cron_expression: editCron,
+        sample_size: editSampleSize ? parseInt(editSampleSize) : undefined,
+      });
+      setEditingSchedule(null);
+      await loadData();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to update schedule');
+    } finally {
+      setEditSubmitting(false);
     }
   };
 
@@ -106,19 +148,23 @@ export default function Schedules({ onRunStarted }: SchedulesProps) {
 
     setRunSubmitting(true);
     try {
-      await startContainerRun({
+      const result = await triggerRun({
         model_id: runModelId,
         sample_size: runSampleSize ? parseInt(runSampleSize) : undefined,
       });
       setShowRunModal(false);
       setRunModelId('');
       setRunSampleSize('');
-      // Notify parent to switch to Run History tab
+      // Notify parent to switch to Run History tab and show toast
       if (onRunStarted) {
-        onRunStarted();
+        onRunStarted(result.message || 'Benchmark triggered successfully');
       }
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to start run');
+      // Keep alert for errors since we're staying on the same page
+      setShowRunModal(false);
+      if (onRunStarted) {
+        onRunStarted(err instanceof Error ? err.message : 'Failed to start run');
+      }
     } finally {
       setRunSubmitting(false);
     }
@@ -169,6 +215,8 @@ export default function Schedules({ onRunStarted }: SchedulesProps) {
                 <th>Model</th>
                 <th>Schedule</th>
                 <th>Sample Size</th>
+                <th>Last Run</th>
+                <th>Next Run</th>
                 <th>Status</th>
                 <th>Actions</th>
               </tr>
@@ -181,6 +229,12 @@ export default function Schedules({ onRunStarted }: SchedulesProps) {
                     {schedule.cron_expression}
                   </td>
                   <td>{schedule.sample_size ?? 'Full'}</td>
+                  <td style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                    {formatDateTime(schedule.last_run)}
+                  </td>
+                  <td style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                    {schedule.is_paused ? '—' : formatDateTime(schedule.next_run)}
+                  </td>
                   <td>
                     <span
                       style={{
@@ -195,13 +249,19 @@ export default function Schedules({ onRunStarted }: SchedulesProps) {
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
                       <button
                         className="btn btn-small btn-secondary"
-                        onClick={() => handleTogglePause(schedule.model_id, schedule.is_paused)}
+                        onClick={() => handleEditSchedule(schedule)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        className="btn btn-small btn-secondary"
+                        onClick={() => handleTogglePause(schedule.id, schedule.is_paused)}
                       >
                         {schedule.is_paused ? 'Resume' : 'Pause'}
                       </button>
                       <button
                         className="btn btn-small btn-danger"
-                        onClick={() => handleDeleteSchedule(schedule.model_id, schedule.model_name)}
+                        onClick={() => handleDeleteSchedule(schedule.id, schedule.model_name)}
                       >
                         Delete
                       </button>
@@ -338,6 +398,63 @@ export default function Schedules({ onRunStarted }: SchedulesProps) {
                   disabled={runSubmitting || !runModelId}
                 >
                   {runSubmitting ? 'Starting...' : 'Start Run'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Schedule Modal */}
+      {editingSchedule && (
+        <div className="modal-overlay" onClick={() => setEditingSchedule(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Edit Schedule - {editingSchedule.model_name}</h2>
+            <form onSubmit={handleSaveEdit}>
+              <div className="form-group">
+                <label>Cron Expression</label>
+                <input
+                  type="text"
+                  value={editCron}
+                  onChange={(e) => setEditCron(e.target.value)}
+                  placeholder="0 6 * * *"
+                  required
+                  style={{ fontFamily: 'var(--font-mono)' }}
+                />
+                <small style={{ color: 'var(--text-muted)', marginTop: '0.25rem', display: 'block' }}>
+                  e.g., "0 6 * * *" for daily at 6am UTC
+                </small>
+              </div>
+
+              <div className="form-group">
+                <label>Sample Size (optional)</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={editSampleSize}
+                  onChange={(e) => {
+                    const value = e.target.value.replace(/\D/g, '');
+                    setEditSampleSize(value);
+                  }}
+                  placeholder="Leave blank for full benchmark"
+                />
+              </div>
+
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setEditingSchedule(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={editSubmitting || !editCron}
+                >
+                  {editSubmitting ? 'Saving...' : 'Save Changes'}
                 </button>
               </div>
             </form>

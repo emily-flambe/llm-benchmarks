@@ -97,3 +97,28 @@ export function describeSchedule(cronExpression: string): string {
 
   return cronExpression;
 }
+
+/**
+ * Get the next run time for a cron expression
+ * Returns ISO string in UTC
+ */
+export function getNextRunTime(cronExpression: string, from: Date = new Date()): string | null {
+  const parts = cronExpression.trim().split(/\s+/);
+  if (parts.length !== 5) return null;
+
+  // Start from the next minute
+  const next = new Date(from);
+  next.setUTCSeconds(0, 0);
+  next.setUTCMinutes(next.getUTCMinutes() + 1);
+
+  // Search up to 1 year ahead
+  const maxIterations = 365 * 24 * 60; // 1 year in minutes
+  for (let i = 0; i < maxIterations; i++) {
+    if (cronMatchesNow(cronExpression, next)) {
+      return next.toISOString();
+    }
+    next.setUTCMinutes(next.getUTCMinutes() + 1);
+  }
+
+  return null;
+}

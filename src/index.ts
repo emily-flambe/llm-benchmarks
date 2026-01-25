@@ -21,7 +21,7 @@ import {
   type CreateProblemResultInput,
 } from "./db";
 import { BenchmarkSchedulerDO, getSchedulerDO, truncateToMinute } from "./services/scheduler-do";
-import { cronMatchesNow, describeSchedule } from "./services/cron";
+import { cronMatchesNow, describeSchedule, getNextRunTime } from "./services/cron";
 
 // Re-export Durable Object for wrangler
 export { BenchmarkSchedulerDO } from "./services/scheduler-do";
@@ -174,7 +174,8 @@ async function verifyAccessJwt(
 async function triggerGitHubWorkflow(
   githubToken: string,
   modelId: string,
-  sampleSize: number
+  sampleSize: number,
+  triggerSource: 'manual' | 'scheduled' = 'manual'
 ): Promise<{ success: boolean; error?: string }> {
   const workflowFile = MODEL_WORKFLOWS[modelId];
   if (!workflowFile) {
@@ -195,6 +196,7 @@ async function triggerGitHubWorkflow(
         ref: "main",
         inputs: {
           sample_size: String(sampleSize),
+          trigger_source: triggerSource,
         },
       }),
     }
@@ -373,11 +375,11 @@ app.get("/api/workflow-runs", async (c) => {
     };
 
     const { results: executions } = await c.env.DB.prepare(`
-      SELECT github_run_id, model_id, sample_size FROM workflow_executions
-    `).all<{ github_run_id: string; model_id: string; sample_size: number }>();
+      SELECT github_run_id, model_id, sample_size, trigger_source FROM workflow_executions
+    `).all<{ github_run_id: string; model_id: string; sample_size: number; trigger_source: string | null }>();
 
-    const metadataMap = new Map<string, { model_id: string; sample_size: number }>();
-    executions?.forEach((r) => metadataMap.set(r.github_run_id, r));
+    const metadataMap = new Map<string, { model_id: string; sample_size: number; trigger_source: string }>();
+    executions?.forEach((r) => metadataMap.set(r.github_run_id, { ...r, trigger_source: r.trigger_source || 'manual' }));
 
     const runs = data.workflow_runs
       .filter((run) => run.name.startsWith("Benchmark"))
@@ -395,6 +397,7 @@ app.get("/api/workflow-runs", async (c) => {
           event: run.event,
           model: metadata?.model_id || workflowToModel[run.name] || 'unknown',
           sample_size: metadata?.sample_size?.toString() || '100',
+          trigger_source: metadata?.trigger_source || 'manual',
         };
       })
       .filter((run) => run.model !== 'unknown');
@@ -419,16 +422,19 @@ app.post("/api/workflow-executions", async (c) => {
       github_run_id: string;
       model_id: string;
       sample_size: number;
+      trigger_source?: string;
     }>();
 
     if (!body.github_run_id || !body.model_id || body.sample_size === undefined) {
       return c.json({ error: "Missing required fields" }, 400);
     }
 
+    const triggerSource = body.trigger_source || 'manual';
+
     await c.env.DB.prepare(`
-      INSERT OR REPLACE INTO workflow_executions (github_run_id, model_id, sample_size)
-      VALUES (?, ?, ?)
-    `).bind(body.github_run_id, body.model_id, body.sample_size).run();
+      INSERT OR REPLACE INTO workflow_executions (github_run_id, model_id, sample_size, trigger_source)
+      VALUES (?, ?, ?, ?)
+    `).bind(body.github_run_id, body.model_id, body.sample_size, triggerSource).run();
 
     return c.json({ success: true });
   } catch (error) {
@@ -467,7 +473,12 @@ app.get("/api/schedules", async (c) => {
         s.is_paused,
         s.created_at,
         s.updated_at,
-        m.display_name as model_name
+        m.display_name as model_name,
+        (
+          SELECT MAX(run_date)
+          FROM benchmark_runs r
+          WHERE r.model_id = s.model_id
+        ) as last_run
       FROM model_schedules s
       JOIN models m ON s.model_id = m.id
       ORDER BY m.display_name
@@ -480,12 +491,15 @@ app.get("/api/schedules", async (c) => {
       created_at: string;
       updated_at: string;
       model_name: string;
+      last_run: string | null;
     }>();
 
+    const now = new Date();
     const schedules = (results || []).map((s) => ({
       ...s,
       is_paused: s.is_paused === 1,
       description: describeSchedule(s.cron_expression),
+      next_run: s.is_paused ? null : getNextRunTime(s.cron_expression, now),
     }));
 
     return c.json({ schedules });
@@ -542,7 +556,7 @@ app.post("/api/schedules", async (c) => {
   }
 });
 
-app.delete("/api/schedules/:model_id", async (c) => {
+app.delete("/api/schedules/:id", async (c) => {
   const apiKeyValid = verifyAdminAuth(c.req.header("Authorization"), c.env.ADMIN_API_KEY);
   const accessJwt = getAccessJwt(c.req);
   const accessResult = await verifyAccessJwt(accessJwt, c.env.CF_ACCESS_TEAM_DOMAIN, c.env.CF_ACCESS_AUD);
@@ -552,8 +566,8 @@ app.delete("/api/schedules/:model_id", async (c) => {
   }
 
   try {
-    const modelId = c.req.param("model_id");
-    await c.env.DB.prepare(`DELETE FROM model_schedules WHERE model_id = ?`).bind(modelId).run();
+    const scheduleId = c.req.param("id");
+    await c.env.DB.prepare(`DELETE FROM model_schedules WHERE id = ?`).bind(scheduleId).run();
     return c.json({ success: true });
   } catch (error) {
     console.error("Error deleting schedule:", error);
@@ -561,7 +575,7 @@ app.delete("/api/schedules/:model_id", async (c) => {
   }
 });
 
-app.patch("/api/schedules/:model_id/pause", async (c) => {
+app.patch("/api/schedules/:id/pause", async (c) => {
   const apiKeyValid = verifyAdminAuth(c.req.header("Authorization"), c.env.ADMIN_API_KEY);
   const accessJwt = getAccessJwt(c.req);
   const accessResult = await verifyAccessJwt(accessJwt, c.env.CF_ACCESS_TEAM_DOMAIN, c.env.CF_ACCESS_AUD);
@@ -571,16 +585,61 @@ app.patch("/api/schedules/:model_id/pause", async (c) => {
   }
 
   try {
-    const modelId = c.req.param("model_id");
+    const scheduleId = c.req.param("id");
     const body = await c.req.json<{ is_paused: boolean }>();
 
     await c.env.DB.prepare(`
       UPDATE model_schedules
       SET is_paused = ?, updated_at = datetime('now')
-      WHERE model_id = ?
-    `).bind(body.is_paused ? 1 : 0, modelId).run();
+      WHERE id = ?
+    `).bind(body.is_paused ? 1 : 0, scheduleId).run();
 
     return c.json({ success: true, is_paused: body.is_paused });
+  } catch (error) {
+    console.error("Error updating schedule:", error);
+    return c.json({ error: "Failed to update schedule" }, 500);
+  }
+});
+
+app.patch("/api/schedules/:id", async (c) => {
+  const apiKeyValid = verifyAdminAuth(c.req.header("Authorization"), c.env.ADMIN_API_KEY);
+  const accessJwt = getAccessJwt(c.req);
+  const accessResult = await verifyAccessJwt(accessJwt, c.env.CF_ACCESS_TEAM_DOMAIN, c.env.CF_ACCESS_AUD);
+
+  if (!apiKeyValid && !accessResult.valid) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  try {
+    const scheduleId = c.req.param("id");
+    const body = await c.req.json<{ cron_expression?: string; sample_size?: number }>();
+
+    const updates: string[] = [];
+    const values: (string | number)[] = [];
+
+    if (body.cron_expression !== undefined) {
+      updates.push("cron_expression = ?");
+      values.push(body.cron_expression);
+    }
+    if (body.sample_size !== undefined) {
+      updates.push("sample_size = ?");
+      values.push(body.sample_size);
+    }
+
+    if (updates.length === 0) {
+      return c.json({ error: "No fields to update" }, 400);
+    }
+
+    updates.push("updated_at = datetime('now')");
+    values.push(scheduleId);
+
+    await c.env.DB.prepare(`
+      UPDATE model_schedules
+      SET ${updates.join(", ")}
+      WHERE id = ?
+    `).bind(...values).run();
+
+    return c.json({ success: true });
   } catch (error) {
     console.error("Error updating schedule:", error);
     return c.json({ error: "Failed to update schedule" }, 500);
@@ -822,7 +881,8 @@ async function runScheduledBenchmarks(env: Bindings, scheduledTime: Date): Promi
     const result = await triggerGitHubWorkflow(
       env.GITHUB_TOKEN,
       schedule.model_id,
-      schedule.sample_size || 100
+      schedule.sample_size || 100,
+      'scheduled'
     );
 
     if (result.success) {

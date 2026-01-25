@@ -54,7 +54,7 @@ export interface CostSummaryData {
   run_count: number;
 }
 
-// Container-based benchmark schedules
+// Benchmark schedules
 export interface ModelSchedule {
   id: string;
   model_id: string;
@@ -65,6 +65,8 @@ export interface ModelSchedule {
   description: string;
   created_at: string;
   updated_at: string;
+  last_run: string | null;
+  next_run: string | null;
 }
 
 export interface SchedulesResponse {

@@ -110,8 +110,8 @@ export async function createSchedule(params: CreateScheduleParams): Promise<{ su
   return data;
 }
 
-export async function deleteSchedule(modelId: string): Promise<{ success: boolean }> {
-  const response = await fetch(`${API_BASE}/schedules/${modelId}`, {
+export async function deleteSchedule(scheduleId: string): Promise<{ success: boolean }> {
+  const response = await fetch(`${API_BASE}/schedules/${scheduleId}`, {
     method: 'DELETE',
     credentials: 'include',
   });
@@ -122,8 +122,8 @@ export async function deleteSchedule(modelId: string): Promise<{ success: boolea
   return data;
 }
 
-export async function toggleSchedulePause(modelId: string, isPaused: boolean): Promise<{ success: boolean }> {
-  const response = await fetch(`${API_BASE}/schedules/${modelId}/pause`, {
+export async function toggleSchedulePause(scheduleId: string, isPaused: boolean): Promise<{ success: boolean }> {
+  const response = await fetch(`${API_BASE}/schedules/${scheduleId}/pause`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
@@ -136,15 +136,14 @@ export async function toggleSchedulePause(modelId: string, isPaused: boolean): P
   return data;
 }
 
-// Container runs
-export interface StartContainerRunParams {
-  model_id: string;
+export interface UpdateScheduleParams {
+  cron_expression?: string;
   sample_size?: number;
 }
 
-export async function startContainerRun(params: StartContainerRunParams): Promise<{ success: boolean; run_id: string }> {
-  const response = await fetch(`${API_BASE}/container-runs`, {
-    method: 'POST',
+export async function updateSchedule(scheduleId: string, params: UpdateScheduleParams): Promise<{ success: boolean }> {
+  const response = await fetch(`${API_BASE}/schedules/${scheduleId}`, {
+    method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
     body: JSON.stringify(params),
@@ -156,7 +155,22 @@ export async function startContainerRun(params: StartContainerRunParams): Promis
   return data;
 }
 
-export async function getContainerRuns(limit?: number): Promise<ContainerRunsResponse> {
-  const params = limit ? `?limit=${limit}` : '';
-  return fetchJson<ContainerRunsResponse>(`/container-runs${params}`);
+// Trigger benchmark run via GitHub Actions
+export interface TriggerRunParams {
+  model_id: string;
+  sample_size?: number;
+}
+
+export async function triggerRun(params: TriggerRunParams): Promise<{ success: boolean; message: string }> {
+  const response = await fetch(`${API_BASE}/trigger-run`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(params),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || `HTTP ${response.status}`);
+  }
+  return data;
 }

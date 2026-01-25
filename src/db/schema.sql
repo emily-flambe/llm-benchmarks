@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS workflow_executions (
   github_run_id TEXT PRIMARY KEY,
   model_id TEXT NOT NULL,
   sample_size INTEGER NOT NULL,
+  trigger_source TEXT DEFAULT 'manual',  -- 'manual' or 'scheduled'
   created_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -59,8 +60,7 @@ CREATE TABLE IF NOT EXISTS model_schedules (
   sample_size INTEGER NOT NULL DEFAULT 100,
   is_paused INTEGER DEFAULT 0,
   created_at TEXT DEFAULT (datetime('now')),
-  updated_at TEXT DEFAULT (datetime('now')),
-  UNIQUE(model_id)                      -- One schedule per model
+  updated_at TEXT DEFAULT (datetime('now'))
 );
 
 -- Container benchmark runs (replaces workflow_executions for new runs)
