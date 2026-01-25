@@ -6,9 +6,9 @@
  */
 
 import { createServer } from 'http';
-import { createLLMProvider, type ApiKeys } from './llm';
-import { loadProblems, formatPrompt, type Problem } from './problems';
-import { extractCodeFromResponse, runTestCases, type ErrorType } from './executor';
+import { createLLMProvider, type ApiKeys } from './llm/index.js';
+import { loadProblems, formatPrompt, type Problem } from './problems.js';
+import { extractCodeFromResponse, runTestCases, type ErrorType } from './executor.js';
 
 interface BenchmarkConfig {
   runId: string;

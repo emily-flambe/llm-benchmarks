@@ -1,5 +1,5 @@
-import type { LLMProvider, LLMRequest, LLMResponse } from './types';
-import { LLMError } from './types';
+import type { LLMProvider, LLMRequest, LLMResponse } from './types.js';
+import { LLMError } from './types.js';
 
 interface AnthropicMessage {
   content: Array<{ type: string; text: string }>;

@@ -1,9 +1,9 @@
-import type { LLMProvider } from './types';
-import { AnthropicProvider } from './anthropic';
-import { OpenAIProvider } from './openai';
+import type { LLMProvider } from './types.js';
+import { AnthropicProvider } from './anthropic.js';
+import { OpenAIProvider } from './openai.js';
 
-export type { LLMProvider, LLMRequest, LLMResponse } from './types';
-export { LLMError } from './types';
+export type { LLMProvider, LLMRequest, LLMResponse } from './types.js';
+export { LLMError } from './types.js';
 
 export interface ProviderConfig {
   id: string;

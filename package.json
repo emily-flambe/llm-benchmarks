@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "npm run build:frontend && wrangler dev",
-    "deploy": "npm run build:all && wrangler deploy",
+    "deploy": "wrangler deploy",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
