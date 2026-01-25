@@ -38,9 +38,18 @@ export default function AdminPanel() {
   const canTrigger = isAuthenticated || apiKey.trim().length > 0;
 
   const handleSignIn = () => {
+    // Clear any stale cookies first, then navigate to login
+    document.cookie = 'CF_Authorization=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
     // Navigate to the login endpoint which triggers Access login
     // After login, it redirects back to the home page
     window.location.href = '/api/auth/login';
+  };
+
+  const handleSignOut = () => {
+    // Clear the CF_Authorization cookie
+    document.cookie = 'CF_Authorization=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+    // Reset auth status to trigger re-check
+    setAuthStatus({ authenticated: false, email: null, method: null });
   };
 
   const handleTrigger = async () => {
@@ -98,12 +107,20 @@ export default function AdminPanel() {
         {isAuthenticated ? (
           <div className="admin-auth-status">
             Signed in as <strong>{authStatus?.email}</strong>
+            <button onClick={handleSignOut} className="admin-signout-link">
+              Sign out
+            </button>
           </div>
         ) : (
           <>
             <button onClick={handleSignIn} className="admin-signin-btn">
               Sign in with Google
             </button>
+            {authCheckFailed && (
+              <p className="admin-auth-hint">
+                Having trouble? The sign-in button will clear your session and prompt fresh login.
+              </p>
+            )}
             <div className="admin-divider">
               <span>or use API key</span>
             </div>
