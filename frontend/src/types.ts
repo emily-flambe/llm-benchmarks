@@ -58,14 +58,35 @@ export interface CostSummaryData {
 export interface ModelSchedule {
   id: string;
   model_id: string;
-  model_display_name: string;
+  model_name: string;
   cron_expression: string;
   sample_size: number | null;
   is_paused: boolean;
+  description: string;
   created_at: string;
   updated_at: string;
 }
 
 export interface SchedulesResponse {
   schedules: ModelSchedule[];
+}
+
+// Container run (benchmark execution)
+export interface ContainerRun {
+  id: string;
+  model_id: string;
+  model_name: string;
+  sample_size: number | null;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  trigger_type: 'manual' | 'scheduled';
+  progress_current: number;
+  progress_total: number;
+  started_at: string | null;
+  completed_at: string | null;
+  error_message: string | null;
+  created_at: string;
+}
+
+export interface ContainerRunsResponse {
+  runs: ContainerRun[];
 }

@@ -169,7 +169,7 @@ export default function Schedules() {
             <tbody>
               {schedules.map((schedule) => (
                 <tr key={schedule.id}>
-                  <td>{schedule.model_display_name}</td>
+                  <td>{schedule.model_name}</td>
                   <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.875rem' }}>
                     {schedule.cron_expression}
                   </td>
@@ -194,7 +194,7 @@ export default function Schedules() {
                       </button>
                       <button
                         className="btn btn-small btn-danger"
-                        onClick={() => handleDeleteSchedule(schedule.model_id, schedule.model_display_name)}
+                        onClick={() => handleDeleteSchedule(schedule.model_id, schedule.model_name)}
                       >
                         Delete
                       </button>

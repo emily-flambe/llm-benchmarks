@@ -3,6 +3,7 @@ import type {
   TrendsResponse,
   ModelsResponse,
   SchedulesResponse,
+  ContainerRunsResponse,
 } from './types';
 
 const API_BASE = '/api';
@@ -153,4 +154,9 @@ export async function startContainerRun(params: StartContainerRunParams): Promis
     throw new Error(data.error || `HTTP ${response.status}`);
   }
   return data;
+}
+
+export async function getContainerRuns(limit?: number): Promise<ContainerRunsResponse> {
+  const params = limit ? `?limit=${limit}` : '';
+  return fetchJson<ContainerRunsResponse>(`/container-runs${params}`);
 }

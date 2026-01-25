@@ -6,8 +6,9 @@ import TrendChart from './components/TrendChart';
 import CostSummary from './components/CostSummary';
 import AdminPanel from './components/AdminPanel';
 import Schedules from './components/Schedules';
+import RunHistory from './components/RunHistory';
 
-type TabType = 'dashboard' | 'schedules';
+type TabType = 'dashboard' | 'schedules' | 'runs';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
@@ -153,6 +154,12 @@ export default function App() {
           Dashboard
         </button>
         <button
+          className={`tab-btn ${activeTab === 'runs' ? 'active' : ''}`}
+          onClick={() => setActiveTab('runs')}
+        >
+          Run History
+        </button>
+        <button
           className={`tab-btn ${activeTab === 'schedules' ? 'active' : ''}`}
           onClick={() => setActiveTab('schedules')}
         >
@@ -174,6 +181,8 @@ export default function App() {
               <CostSummary runs={runs} loading={loading} />
             </div>
           )
+        ) : activeTab === 'runs' ? (
+          <RunHistory />
         ) : (
           <Schedules />
         )}
