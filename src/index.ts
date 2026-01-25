@@ -186,6 +186,17 @@ app.get("/api/auth/status", async (c) => {
   });
 });
 
+/**
+ * GET /api/auth/login - Trigger Cloudflare Access login then redirect home
+ * This endpoint is protected by Access, so visiting it triggers login.
+ * After login, redirect back to the home page.
+ */
+app.get("/api/auth/login", async (c) => {
+  // If we get here, the user is authenticated (Access let them through)
+  // Redirect to home page
+  return c.redirect("/");
+});
+
 // ============================================================================
 // Public Endpoints
 // ============================================================================

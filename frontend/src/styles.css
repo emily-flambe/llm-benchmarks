@@ -644,6 +644,48 @@ tr.clickable {
   color: var(--text-primary);
 }
 
+.admin-signin-btn {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.admin-signin-btn:hover {
+  background-color: var(--bg-hover);
+  border-color: var(--border-light);
+}
+
+.admin-divider {
+  display: flex;
+  align-items: center;
+  margin: 1rem 0;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.admin-divider::before,
+.admin-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background-color: var(--border);
+}
+
+.admin-divider span {
+  padding: 0 0.75rem;
+}
+
 @media (max-width: 400px) {
   .admin-panel {
     left: 1rem;

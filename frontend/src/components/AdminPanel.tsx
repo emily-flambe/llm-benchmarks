@@ -34,7 +34,14 @@ export default function AdminPanel() {
   }, [isOpen, authStatus]);
 
   const isAuthenticated = authStatus?.authenticated ?? false;
+  const authCheckFailed = authStatus !== null && !isAuthenticated;
   const canTrigger = isAuthenticated || apiKey.trim().length > 0;
+
+  const handleSignIn = () => {
+    // Navigate to the login endpoint which triggers Access login
+    // After login, it redirects back to the home page
+    window.location.href = '/api/auth/login';
+  };
 
   const handleTrigger = async () => {
     if (!canTrigger) {
@@ -93,17 +100,25 @@ export default function AdminPanel() {
             Signed in as <strong>{authStatus?.email}</strong>
           </div>
         ) : (
-          <div className="admin-field">
-            <label htmlFor="admin-api-key">Admin API Key</label>
-            <input
-              id="admin-api-key"
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="Enter your admin API key"
-              autoComplete="off"
-            />
-          </div>
+          <>
+            <button onClick={handleSignIn} className="admin-signin-btn">
+              Sign in with Google
+            </button>
+            <div className="admin-divider">
+              <span>or use API key</span>
+            </div>
+            <div className="admin-field">
+              <label htmlFor="admin-api-key">Admin API Key</label>
+              <input
+                id="admin-api-key"
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="Enter your admin API key"
+                autoComplete="off"
+              />
+            </div>
+          </>
         )}
 
         <div className="admin-field">
