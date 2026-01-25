@@ -9,7 +9,9 @@ import type {
 const API_BASE = '/api';
 
 async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(`${API_BASE}${url}`);
+  const response = await fetch(`${API_BASE}${url}`, {
+    credentials: 'include', // Include cookies for Cloudflare Access auth
+  });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Request failed' }));
     throw new Error(error.error || `HTTP ${response.status}`);
@@ -76,6 +78,7 @@ export async function triggerBenchmark(
   const response = await fetch(`${API_BASE}/admin/trigger-benchmark`, {
     method: 'POST',
     headers,
+    credentials: 'include', // Include cookies for Cloudflare Access auth
     body: JSON.stringify(params),
   });
 
