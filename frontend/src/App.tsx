@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Routes, Route, NavLink, useNavigate, Navigate } from 'react-router-dom';
 import { getRuns, getTrends, getModels, getAuthStatus, type AuthStatus } from './api';
 import type { BenchmarkRun, TrendDataPoint, Model } from './types';
 import ScoreCard from './components/ScoreCard';
@@ -8,10 +9,8 @@ import AdminPanel from './components/AdminPanel';
 import Schedules from './components/Schedules';
 import RunHistory from './components/RunHistory';
 
-type TabType = 'dashboard' | 'schedules' | 'runs';
-
 export default function App() {
-  const [activeTab, setActiveTab] = useState<TabType>('dashboard');
+  const navigate = useNavigate();
   const [models, setModels] = useState<Model[]>([]);
   const [runs, setRuns] = useState<BenchmarkRun[]>([]);
   const [trends, setTrends] = useState<TrendDataPoint[]>([]);
@@ -147,45 +146,50 @@ export default function App() {
       </header>
 
       <nav className="tab-nav container">
-        <button
-          className={`tab-btn ${activeTab === 'dashboard' ? 'active' : ''}`}
-          onClick={() => setActiveTab('dashboard')}
+        <NavLink
+          to="/"
+          end
+          className={({ isActive }) => `tab-btn ${isActive ? 'active' : ''}`}
         >
           Dashboard
-        </button>
-        <button
-          className={`tab-btn ${activeTab === 'runs' ? 'active' : ''}`}
-          onClick={() => setActiveTab('runs')}
+        </NavLink>
+        <NavLink
+          to="/runs"
+          className={({ isActive }) => `tab-btn ${isActive ? 'active' : ''}`}
         >
           Run History
-        </button>
-        <button
-          className={`tab-btn ${activeTab === 'schedules' ? 'active' : ''}`}
-          onClick={() => setActiveTab('schedules')}
+        </NavLink>
+        <NavLink
+          to="/schedules"
+          className={({ isActive }) => `tab-btn ${isActive ? 'active' : ''}`}
         >
           Schedules
-        </button>
+        </NavLink>
       </nav>
 
       <main className="container" style={{ paddingBottom: '3rem' }}>
-        {activeTab === 'dashboard' ? (
-          error ? (
-            <div className="error-message">
-              <p>Failed to load benchmark data</p>
-              <p style={{ fontSize: '0.875rem', marginTop: '0.5rem' }}>{error}</p>
-            </div>
-          ) : (
-            <div className="dashboard-grid">
-              <ScoreCard runs={last24HoursRunsByModel} loading={loading} />
-              <TrendChart data={trends} loading={loading} selectedModelIds={activeModelIds} />
-              <CostSummary runs={runs} loading={loading} />
-            </div>
-          )
-        ) : activeTab === 'runs' ? (
-          <RunHistory />
-        ) : (
-          <Schedules onRunStarted={() => setActiveTab('runs')} />
-        )}
+        <Routes>
+          <Route
+            path="/"
+            element={
+              error ? (
+                <div className="error-message">
+                  <p>Failed to load benchmark data</p>
+                  <p style={{ fontSize: '0.875rem', marginTop: '0.5rem' }}>{error}</p>
+                </div>
+              ) : (
+                <div className="dashboard-grid">
+                  <ScoreCard runs={last24HoursRunsByModel} loading={loading} />
+                  <TrendChart data={trends} loading={loading} selectedModelIds={activeModelIds} />
+                  <CostSummary runs={runs} loading={loading} />
+                </div>
+              )
+            }
+          />
+          <Route path="/runs" element={<RunHistory />} />
+          <Route path="/schedules" element={<Schedules onRunStarted={() => navigate('/runs')} />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       </main>
 
       <AdminPanel />

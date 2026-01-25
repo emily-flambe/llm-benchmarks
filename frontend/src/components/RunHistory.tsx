@@ -2,12 +2,20 @@ import { useState, useEffect, useCallback } from 'react';
 import { getContainerRuns } from '../api';
 import type { ContainerRun } from '../types';
 
+// Parse database timestamp as UTC (timestamps are stored without timezone)
+function parseUtcTimestamp(timestamp: string): Date {
+  // If it doesn't end with Z, append it to ensure UTC parsing
+  const utcStr = timestamp.endsWith('Z') ? timestamp : timestamp.replace(' ', 'T') + 'Z';
+  return new Date(utcStr);
+}
+
 function formatDuration(startedAt: string | null, completedAt: string | null): string {
   if (!startedAt) return '--';
-  const start = new Date(startedAt);
-  const end = completedAt ? new Date(completedAt) : new Date();
+  const start = parseUtcTimestamp(startedAt);
+  const end = completedAt ? parseUtcTimestamp(completedAt) : new Date();
   const seconds = Math.floor((end.getTime() - start.getTime()) / 1000);
 
+  if (seconds < 0) return '--'; // Guard against future start times
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = seconds % 60;
@@ -19,7 +27,7 @@ function formatDuration(startedAt: string | null, completedAt: string | null): s
 
 function formatTime(dateString: string | null): string {
   if (!dateString) return '--';
-  const date = new Date(dateString);
+  const date = parseUtcTimestamp(dateString);
   return date.toLocaleString('en-US', {
     month: 'short',
     day: 'numeric',
