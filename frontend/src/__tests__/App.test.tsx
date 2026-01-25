@@ -105,7 +105,7 @@ describe('App', () => {
       await waitFor(() => {
         expect(screen.getByText('Latest pass@1 Score')).toBeInTheDocument();
         expect(screen.getByText(/Cost Summary/)).toBeInTheDocument();
-        expect(screen.getByText('Score Trend (30 Days)')).toBeInTheDocument();
+        expect(screen.getByText('Score Trend (30 Days, UTC)')).toBeInTheDocument();
         expect(screen.getByText('Recent Runs')).toBeInTheDocument();
       });
     });

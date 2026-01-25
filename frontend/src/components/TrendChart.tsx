@@ -31,8 +31,10 @@ interface TrendChartProps {
 }
 
 function formatDate(dateStr: string): string {
-  const date = new Date(dateStr);
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  // Parse as UTC to avoid timezone shift (YYYY-MM-DD is interpreted as UTC midnight)
+  // Add T12:00:00 to treat as noon UTC, avoiding date boundary issues
+  const date = new Date(dateStr + 'T12:00:00Z');
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
 interface ChartDataPoint {
@@ -111,7 +113,7 @@ export default function TrendChart({ data, loading }: TrendChartProps) {
     return (
       <div className="card full-width">
         <div className="card-header">
-          <span className="card-title">Score Trend (30 Days)</span>
+          <span className="card-title">Score Trend (30 Days, UTC)</span>
         </div>
         <div className="chart-container">
           <div className="loading">
@@ -126,7 +128,7 @@ export default function TrendChart({ data, loading }: TrendChartProps) {
     return (
       <div className="card full-width">
         <div className="card-header">
-          <span className="card-title">Score Trend (30 Days)</span>
+          <span className="card-title">Score Trend (30 Days, UTC)</span>
         </div>
         <div className="chart-container">
           <div className="empty-state">No trend data available</div>
@@ -159,12 +161,21 @@ export default function TrendChart({ data, loading }: TrendChartProps) {
     (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
   );
 
+  // Calculate y-axis domain based on data variance
+  const allScores = data.map((d) => d.score * 100);
+  const minScore = Math.min(...allScores);
+  const maxScore = Math.max(...allScores);
+  const range = maxScore - minScore;
+  const padding = Math.max(range * 0.2, 5); // At least 5% padding, or 20% of range
+  const yMin = Math.max(0, Math.floor((minScore - padding) / 5) * 5); // Round down to nearest 5
+  const yMax = Math.min(100, Math.ceil((maxScore + padding) / 5) * 5); // Round up to nearest 5
+
   const showLegend = modelIds.length > 1;
 
   return (
     <div className="card full-width">
       <div className="card-header">
-        <span className="card-title">Score Trend (30 Days)</span>
+        <span className="card-title">Score Trend (30 Days, UTC)</span>
       </div>
       <div className="chart-container">
         <ResponsiveContainer width="100%" height="100%">
@@ -179,7 +190,7 @@ export default function TrendChart({ data, loading }: TrendChartProps) {
               axisLine={{ stroke: 'var(--border)' }}
             />
             <YAxis
-              domain={[0, 100]}
+              domain={[yMin, yMax]}
               tickFormatter={(value) => `${value}%`}
               stroke="var(--text-muted)"
               fontSize={12}

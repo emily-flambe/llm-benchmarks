@@ -42,7 +42,7 @@ describe('TrendChart', () => {
     it('should display title when loading', () => {
       render(<TrendChart data={[]} loading={true} selectedModelIds={['claude-opus-4-5']} />);
 
-      expect(screen.getByText('Score Trend (30 Days)')).toBeInTheDocument();
+      expect(screen.getByText('Score Trend (30 Days, UTC)')).toBeInTheDocument();
     });
   });
 
@@ -56,7 +56,7 @@ describe('TrendChart', () => {
     it('should display title when empty', () => {
       render(<TrendChart data={[]} loading={false} selectedModelIds={['claude-opus-4-5']} />);
 
-      expect(screen.getByText('Score Trend (30 Days)')).toBeInTheDocument();
+      expect(screen.getByText('Score Trend (30 Days, UTC)')).toBeInTheDocument();
     });
   });
 
@@ -89,10 +89,10 @@ describe('TrendChart', () => {
   });
 
   describe('Title', () => {
-    it('should always display "Score Trend (30 Days)"', () => {
+    it('should always display "Score Trend (30 Days, UTC)"', () => {
       render(<TrendChart data={[createMockTrendData()]} loading={false} />);
 
-      expect(screen.getByText('Score Trend (30 Days)')).toBeInTheDocument();
+      expect(screen.getByText('Score Trend (30 Days, UTC)')).toBeInTheDocument();
     });
   });
 
