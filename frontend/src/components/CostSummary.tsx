@@ -3,6 +3,7 @@ import type { BenchmarkRun } from '../types';
 interface CostSummaryProps {
   runs: BenchmarkRun[];
   loading?: boolean;
+  modelNames?: string;
 }
 
 function calculateCostSummary(runs: BenchmarkRun[]): {
@@ -33,7 +34,7 @@ function calculateCostSummary(runs: BenchmarkRun[]): {
   };
 }
 
-export default function CostSummary({ runs, loading }: CostSummaryProps) {
+export default function CostSummary({ runs, loading, modelNames }: CostSummaryProps) {
   if (loading) {
     return (
       <div className="card">
@@ -48,11 +49,12 @@ export default function CostSummary({ runs, loading }: CostSummaryProps) {
   }
 
   const summary = calculateCostSummary(runs);
+  const subtitle = modelNames ? ` - ${modelNames}` : '';
 
   return (
     <div className="card">
       <div className="card-header">
-        <span className="card-title">Cost Summary (This Month)</span>
+        <span className="card-title">Cost Summary (This Month){subtitle}</span>
       </div>
       <div className="cost-grid">
         <div className="cost-item">

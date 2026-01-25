@@ -122,21 +122,33 @@ export async function getModelById(
 export async function getRecentRuns(
   db: D1Database,
   limit: number = 20,
-  offset: number = 0
+  offset: number = 0,
+  modelIds?: string[]
 ): Promise<BenchmarkRunWithModel[]> {
+  let query = `
+    SELECT
+      r.*,
+      m.display_name as model_display_name,
+      m.provider as model_provider
+    FROM benchmark_runs r
+    JOIN models m ON r.model_id = m.id
+    WHERE r.status = 'completed'
+  `;
+
+  const params: (string | number)[] = [];
+
+  if (modelIds && modelIds.length > 0) {
+    const placeholders = modelIds.map(() => "?").join(", ");
+    query += ` AND r.model_id IN (${placeholders})`;
+    params.push(...modelIds);
+  }
+
+  query += " ORDER BY r.run_date DESC, r.created_at DESC LIMIT ? OFFSET ?";
+  params.push(limit, offset);
+
   const { results } = await db
-    .prepare(
-      `SELECT
-        r.*,
-        m.display_name as model_display_name,
-        m.provider as model_provider
-      FROM benchmark_runs r
-      JOIN models m ON r.model_id = m.id
-      WHERE r.status = 'completed'
-      ORDER BY r.run_date DESC, r.created_at DESC
-      LIMIT ? OFFSET ?`
-    )
-    .bind(limit, offset)
+    .prepare(query)
+    .bind(...params)
     .all<BenchmarkRunWithModel>();
   return results || [];
 }
@@ -187,7 +199,7 @@ export async function getProblemResults(
 export async function getTrends(
   db: D1Database,
   days: number = 30,
-  modelId?: string
+  modelIds?: string[]
 ): Promise<
   Array<{
     date: string;  // Aliased from run_date for frontend compatibility
@@ -216,16 +228,17 @@ export async function getTrends(
 
   const params: (string | number)[] = [dateStr];
 
-  if (modelId) {
-    query += " AND r.model_id = ?";
-    params.push(modelId);
+  if (modelIds && modelIds.length > 0) {
+    const placeholders = modelIds.map(() => "?").join(", ");
+    query += ` AND r.model_id IN (${placeholders})`;
+    params.push(...modelIds);
   }
 
   query += " ORDER BY r.run_date ASC, r.created_at ASC";
 
   const stmt = db.prepare(query);
   const { results } = await stmt.bind(...params).all<{
-    run_date: string;
+    date: string;
     model_id: string;
     model_display_name: string;
     score: number;
@@ -306,11 +319,22 @@ export async function createProblemResults(
 /**
  * Get total count of runs for pagination
  */
-export async function getRunCount(db: D1Database): Promise<number> {
-  const result = await db
-    .prepare(
-      "SELECT COUNT(*) as count FROM benchmark_runs WHERE status = 'completed'"
-    )
-    .first<{ count: number }>();
+export async function getRunCount(
+  db: D1Database,
+  modelIds?: string[]
+): Promise<number> {
+  let query = "SELECT COUNT(*) as count FROM benchmark_runs WHERE status = 'completed'";
+  const params: string[] = [];
+
+  if (modelIds && modelIds.length > 0) {
+    const placeholders = modelIds.map(() => "?").join(", ");
+    query += ` AND model_id IN (${placeholders})`;
+    params.push(...modelIds);
+  }
+
+  const stmt = db.prepare(query);
+  const result = params.length > 0
+    ? await stmt.bind(...params).first<{ count: number }>()
+    : await stmt.first<{ count: number }>();
   return result?.count || 0;
 }

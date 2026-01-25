@@ -19,8 +19,9 @@ async function fetchJson<T>(url: string): Promise<T> {
   return response.json();
 }
 
-export async function getRuns(): Promise<RunsResponse> {
-  return fetchJson<RunsResponse>('/runs');
+export async function getRuns(modelIds?: string[]): Promise<RunsResponse> {
+  const params = modelIds?.length ? `?model_ids=${modelIds.join(',')}` : '';
+  return fetchJson<RunsResponse>(`/runs${params}`);
 }
 
 export async function getRun(id: string): Promise<RunDetailResponse> {
@@ -31,8 +32,9 @@ export async function getRunProblems(runId: string): Promise<ProblemsResponse> {
   return fetchJson<ProblemsResponse>(`/runs/${runId}/problems`);
 }
 
-export async function getTrends(): Promise<TrendsResponse> {
-  return fetchJson<TrendsResponse>('/trends');
+export async function getTrends(modelIds?: string[]): Promise<TrendsResponse> {
+  const params = modelIds?.length ? `?model_ids=${modelIds.join(',')}` : '';
+  return fetchJson<TrendsResponse>(`/trends${params}`);
 }
 
 export async function getModels(): Promise<ModelsResponse> {

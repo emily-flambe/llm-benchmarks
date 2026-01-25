@@ -247,15 +247,21 @@ app.get("/api/models", async (c) => {
 
 /**
  * GET /api/runs - Recent runs with scores (paginated)
+ * Query params:
+ *   - limit: number (default 20, max 100)
+ *   - offset: number (default 0)
+ *   - model_ids: comma-separated model IDs to filter by
  */
 app.get("/api/runs", async (c) => {
   try {
     const limit = Math.max(1, Math.min(parseInt(c.req.query("limit") || "20") || 20, 100));
     const offset = Math.max(0, parseInt(c.req.query("offset") || "0") || 0);
+    const modelIdsParam = c.req.query("model_ids");
+    const modelIds = modelIdsParam ? modelIdsParam.split(",").filter(Boolean) : undefined;
 
     const [runs, total] = await Promise.all([
-      getRecentRuns(c.env.DB, limit, offset),
-      getRunCount(c.env.DB),
+      getRecentRuns(c.env.DB, limit, offset, modelIds),
+      getRunCount(c.env.DB, modelIds),
     ]);
 
     return c.json({
@@ -315,14 +321,18 @@ app.get("/api/runs/:id/problems", async (c) => {
 
 /**
  * GET /api/trends - Score over time for charts (last 30 days)
+ * Query params:
+ *   - days: number (default 30, max 90)
+ *   - model_ids: comma-separated model IDs to filter by
  */
 app.get("/api/trends", async (c) => {
   try {
     const parsedDays = parseInt(c.req.query("days") || "30");
     const days = Math.max(1, Math.min(isNaN(parsedDays) ? 30 : parsedDays, 90));
-    const modelId = c.req.query("model_id");
+    const modelIdsParam = c.req.query("model_ids");
+    const modelIds = modelIdsParam ? modelIdsParam.split(",").filter(Boolean) : undefined;
 
-    const trends = await getTrends(c.env.DB, days, modelId);
+    const trends = await getTrends(c.env.DB, days, modelIds);
     return c.json({ trends, days });
   } catch (error) {
     console.error("Error fetching trends:", error);

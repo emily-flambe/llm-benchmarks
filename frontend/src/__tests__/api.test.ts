@@ -29,8 +29,20 @@ describe('API Client', () => {
 
       const result = await getRuns();
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/runs');
+      expect(mockFetch).toHaveBeenCalledWith('/api/runs', { credentials: 'include' });
       expect(result).toEqual(mockResponse);
+    });
+
+    it('should make GET request with model_ids query param', async () => {
+      const mockResponse = { runs: [] };
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(mockResponse),
+      });
+
+      await getRuns(['model-1', 'model-2']);
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/runs?model_ids=model-1,model-2', { credentials: 'include' });
     });
 
     it('should handle successful response with runs data', async () => {
@@ -119,7 +131,7 @@ describe('API Client', () => {
 
       await getRun('run-123');
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/runs/run-123');
+      expect(mockFetch).toHaveBeenCalledWith('/api/runs/run-123', { credentials: 'include' });
     });
 
     it('should handle special characters in ID', async () => {
@@ -132,7 +144,7 @@ describe('API Client', () => {
       // Note: This tests raw ID passing - real impl may need URL encoding
       await getRun('run/with/slashes');
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/runs/run/with/slashes');
+      expect(mockFetch).toHaveBeenCalledWith('/api/runs/run/with/slashes', { credentials: 'include' });
     });
 
     it('should throw on non-existent run', async () => {
@@ -156,7 +168,7 @@ describe('API Client', () => {
 
       await getRunProblems('run-123');
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/runs/run-123/problems');
+      expect(mockFetch).toHaveBeenCalledWith('/api/runs/run-123/problems', { credentials: 'include' });
     });
 
     it('should return problems array', async () => {
@@ -189,7 +201,19 @@ describe('API Client', () => {
 
       await getTrends();
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/trends');
+      expect(mockFetch).toHaveBeenCalledWith('/api/trends', { credentials: 'include' });
+    });
+
+    it('should make GET request with model_ids query param', async () => {
+      const mockResponse = { trends: [] };
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(mockResponse),
+      });
+
+      await getTrends(['model-1', 'model-2']);
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/trends?model_ids=model-1,model-2', { credentials: 'include' });
     });
 
     it('should return trend data points', async () => {
@@ -221,7 +245,7 @@ describe('API Client', () => {
 
       await getModels();
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/models');
+      expect(mockFetch).toHaveBeenCalledWith('/api/models', { credentials: 'include' });
     });
   });
 

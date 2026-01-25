@@ -1,41 +1,79 @@
-import { useState, useEffect } from 'react';
-import { getRuns, getTrends } from './api';
-import type { BenchmarkRun, TrendDataPoint } from './types';
+import { useState, useEffect, useCallback } from 'react';
+import { getRuns, getTrends, getModels } from './api';
+import type { BenchmarkRun, TrendDataPoint, Model } from './types';
 import ScoreCard from './components/ScoreCard';
 import TrendChart from './components/TrendChart';
 import RunsTable from './components/RunsTable';
 import CostSummary from './components/CostSummary';
 import RunDetails from './components/RunDetails';
 import AdminPanel from './components/AdminPanel';
+import ModelSelector from './components/ModelSelector';
+
+const DEFAULT_MODEL_ID = 'claude-opus-4-5';
 
 export default function App() {
+  const [models, setModels] = useState<Model[]>([]);
+  const [selectedModelIds, setSelectedModelIds] = useState<string[]>([DEFAULT_MODEL_ID]);
   const [runs, setRuns] = useState<BenchmarkRun[]>([]);
   const [trends, setTrends] = useState<TrendDataPoint[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedRun, setSelectedRun] = useState<BenchmarkRun | null>(null);
 
+  // Fetch models on mount
   useEffect(() => {
-    async function loadData() {
-      setLoading(true);
-      setError(null);
-
+    async function loadModels() {
       try {
-        const [runsData, trendsData] = await Promise.all([getRuns(), getTrends()]);
-
-        setRuns(runsData.runs);
-        setTrends(trendsData.trends);
+        const data = await getModels();
+        setModels(data.models);
+        // If default model isn't in the list, select the first available model
+        if (data.models.length > 0 && !data.models.some((m) => m.id === DEFAULT_MODEL_ID)) {
+          setSelectedModelIds([data.models[0].id]);
+        }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load data');
+        console.error('Failed to load models:', err);
       } finally {
-        setLoading(false);
+        setModelsLoading(false);
       }
     }
-
-    loadData();
+    loadModels();
   }, []);
 
-  const latestRun = runs.length > 0 ? runs[0] : null;
+  // Fetch runs and trends when model selection changes
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const modelIds = selectedModelIds.length > 0 ? selectedModelIds : undefined;
+      const [runsData, trendsData] = await Promise.all([
+        getRuns(modelIds),
+        getTrends(modelIds),
+      ]);
+
+      setRuns(runsData.runs);
+      setTrends(trendsData.trends);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load data');
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedModelIds]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // Get latest run for each selected model
+  const latestRunsByModel = selectedModelIds.map((modelId) => {
+    return runs.find((r) => r.model_id === modelId) || null;
+  }).filter((r): r is BenchmarkRun => r !== null);
+
+  // Get selected model names for display
+  const selectedModelNames = selectedModelIds
+    .map((id) => models.find((m) => m.id === id)?.display_name || id)
+    .join(', ');
 
   return (
     <>
@@ -45,8 +83,14 @@ export default function App() {
             <div>
               <h1>LLM Benchmarks</h1>
               <p className="header-subtitle">
-                Tracking Claude Opus 4.5 code generation quality with LiveCodeBench
+                Tracking LLM code generation quality with LiveCodeBench
               </p>
+              <ModelSelector
+                models={models}
+                selectedIds={selectedModelIds}
+                onSelectionChange={setSelectedModelIds}
+                loading={modelsLoading}
+              />
             </div>
             <a
               href="https://github.com/emily-flambe/llm-benchmarks"
@@ -77,10 +121,10 @@ export default function App() {
           </div>
         ) : (
           <div className="dashboard-grid">
-            <ScoreCard run={latestRun} loading={loading} />
-            <CostSummary runs={runs} loading={loading} />
-            <TrendChart data={trends} loading={loading} />
-            <RunsTable runs={runs} loading={loading} onRowClick={setSelectedRun} />
+            <ScoreCard runs={latestRunsByModel} loading={loading} />
+            <CostSummary runs={runs} loading={loading} modelNames={selectedModelNames} />
+            <TrendChart data={trends} loading={loading} selectedModelIds={selectedModelIds} />
+            <RunsTable runs={runs} loading={loading} onRowClick={setSelectedRun} showModelColumn={selectedModelIds.length > 1} />
           </div>
         )}
       </main>

@@ -5,6 +5,7 @@ interface RunsTableProps {
   runs: BenchmarkRun[];
   loading?: boolean;
   onRowClick?: (run: BenchmarkRun) => void;
+  showModelColumn?: boolean;
 }
 
 type SortField = 'run_date' | 'score' | 'sample_size' | 'cost';
@@ -25,7 +26,7 @@ function formatCost(run: BenchmarkRun): string {
   return `$${total.toFixed(2)}`;
 }
 
-export default function RunsTable({ runs, loading, onRowClick }: RunsTableProps) {
+export default function RunsTable({ runs, loading, onRowClick, showModelColumn = false }: RunsTableProps) {
   const [sortField, setSortField] = useState<SortField>('run_date');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
@@ -109,6 +110,7 @@ export default function RunsTable({ runs, loading, onRowClick }: RunsTableProps)
         <table>
           <thead>
             <tr>
+              {showModelColumn && <th>Model</th>}
               <th
                 onClick={() => handleSort('run_date')}
                 className={sortField === 'run_date' ? 'sorted' : ''}
@@ -143,6 +145,9 @@ export default function RunsTable({ runs, loading, onRowClick }: RunsTableProps)
                 onClick={() => onRowClick?.(run)}
                 className={onRowClick ? 'clickable' : ''}
               >
+                {showModelColumn && (
+                  <td className="table-model">{run.model_display_name || run.model_id}</td>
+                )}
                 <td>{formatDate(run.run_date)}</td>
                 <td className="table-score">
                   {run.score !== null ? `${(run.score * 100).toFixed(1)}%` : '--'}

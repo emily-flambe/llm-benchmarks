@@ -11,6 +11,8 @@ export interface Model {
 export interface BenchmarkRun {
   id: string;
   model_id: string;
+  model_display_name?: string;
+  model_provider?: string;
   run_date: string;
   sample_size: number | null;
   score: number | null;
@@ -37,6 +39,8 @@ export interface ProblemResult {
 
 export interface TrendDataPoint {
   date: string;
+  model_id: string;
+  model_display_name: string;
   score: number;
   sample_size: number;
 }

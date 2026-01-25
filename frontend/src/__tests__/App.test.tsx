@@ -55,6 +55,8 @@ function createMockRun(overrides: Partial<BenchmarkRun> = {}): BenchmarkRun {
 function createMockTrend(overrides: Partial<TrendDataPoint> = {}): TrendDataPoint {
   return {
     date: '2025-01-20',
+    model_id: 'claude-opus-4-5',
+    model_display_name: 'Claude Opus 4.5',
     score: 0.85,
     sample_size: 100,
     ...overrides,
@@ -176,7 +178,7 @@ describe('App', () => {
 
       render(<App />);
 
-      expect(screen.getByText(/Tracking Claude Opus 4.5 code generation quality/)).toBeInTheDocument();
+      expect(screen.getByText(/Tracking LLM code generation quality/)).toBeInTheDocument();
     });
 
     it('should display GitHub link', async () => {
