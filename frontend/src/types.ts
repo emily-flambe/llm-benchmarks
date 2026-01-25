@@ -80,6 +80,8 @@ export interface WorkflowRun {
   updated_at: string;
   html_url: string;
   event: string;
+  model: string;
+  sample_size: string;
 }
 
 export interface WorkflowRunsResponse {

@@ -12,6 +12,19 @@ function formatDate(dateStr: string): string {
   });
 }
 
+function formatModel(model: string): string {
+  // Map full model names to short display names
+  const modelMap: Record<string, string> = {
+    'claude-opus-4-5-20251101': 'Opus 4.5',
+    'claude-sonnet-4-20250514': 'Sonnet 4',
+    'claude-sonnet-4': 'Sonnet 4',
+    'gpt-4.1': 'GPT-4.1',
+    'o3': 'o3',
+    'gemini-2.5-pro': 'Gemini 2.5 Pro',
+  };
+  return modelMap[model] || model;
+}
+
 function getStatusDisplay(run: WorkflowRun): { label: string; className: string } {
   if (run.status === 'completed') {
     switch (run.conclusion) {
@@ -130,9 +143,10 @@ export default function WorkflowRuns() {
           <thead>
             <tr>
               <th>Run</th>
+              <th>Model</th>
+              <th>Sample</th>
               <th>Started</th>
               <th>Duration</th>
-              <th>Trigger</th>
               <th>Status</th>
             </tr>
           </thead>
@@ -151,9 +165,10 @@ export default function WorkflowRuns() {
                       #{run.run_number}
                     </a>
                   </td>
+                  <td className="workflow-model">{formatModel(run.model)}</td>
+                  <td className="workflow-sample">{run.sample_size}</td>
                   <td>{formatDate(run.created_at)}</td>
                   <td className="workflow-duration">{getDuration(run)}</td>
-                  <td className="workflow-trigger">{run.event}</td>
                   <td>
                     <span className={`badge ${status.className}`}>
                       {status.label}

@@ -344,6 +344,7 @@ app.get("/api/workflow-runs", async (c) => {
       workflow_runs: Array<{
         id: number;
         name: string;
+        display_title: string;
         status: string;
         conclusion: string | null;
         created_at: string;
@@ -351,10 +352,14 @@ app.get("/api/workflow-runs", async (c) => {
         html_url: string;
         run_number: number;
         event: string;
+        inputs?: {
+          model?: string;
+          sample_size?: string;
+        };
       }>;
     }>();
 
-    // Extract relevant fields and parse inputs from the run name/display_title
+    // Extract relevant fields including model/sample_size from inputs
     const runs = data.workflow_runs.map((run) => ({
       id: run.id,
       run_number: run.run_number,
@@ -364,6 +369,8 @@ app.get("/api/workflow-runs", async (c) => {
       updated_at: run.updated_at,
       html_url: run.html_url,
       event: run.event,
+      model: run.inputs?.model || 'claude-opus-4-5-20251101',
+      sample_size: run.inputs?.sample_size || '100',
     }));
 
     return c.json({ runs });
