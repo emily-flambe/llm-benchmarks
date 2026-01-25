@@ -16,7 +16,7 @@
     "db:migrate:local": "wrangler d1 execute llm-benchmarks-db --local --file=./src/db/schema.sql"
   },
   "dependencies": {
-    "@cloudflare/containers": "^0.0.3",
+    "@cloudflare/containers": "^0.1.0",
     "hono": "^4.11.4",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
