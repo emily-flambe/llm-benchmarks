@@ -2,6 +2,7 @@
  * LLM Benchmarks Cloudflare Worker API
  *
  * Stores benchmark results and serves the dashboard.
+ * Includes Container-based benchmark execution and scheduling.
  */
 
 import { Hono } from "hono";
@@ -19,15 +20,27 @@ import {
   type CreateRunInput,
   type CreateProblemResultInput,
 } from "./db";
+import { BenchmarkSchedulerDO, getSchedulerDO, truncateToMinute } from "./services/scheduler-do";
+import { BenchmarkContainer, startBenchmarkInContainer } from "./services/container";
+import { cronMatchesNow, describeSchedule } from "./services/cron";
+
+// Re-export Durable Objects and Container for wrangler
+export { BenchmarkSchedulerDO } from "./services/scheduler-do";
+export { BenchmarkContainer } from "./services/container";
 
 // Environment bindings
 type Bindings = {
   DB: D1Database;
   ADMIN_API_KEY: string;
   GITHUB_TOKEN: string;
-  CF_ACCESS_TEAM_DOMAIN: string; // e.g., "emilycogsdill" for emilycogsdill.cloudflareaccess.com
-  CF_ACCESS_AUD: string; // Application Audience (AUD) tag from Access
+  ANTHROPIC_API_KEY: string;
+  OPENAI_API_KEY: string;
+  GOOGLE_API_KEY?: string;
+  CF_ACCESS_TEAM_DOMAIN: string;
+  CF_ACCESS_AUD: string;
   ASSETS: Fetcher;
+  BENCHMARK_SCHEDULER: DurableObjectNamespace<BenchmarkSchedulerDO>;
+  BENCHMARK_CONTAINER: DurableObjectNamespace<BenchmarkContainer>;
 };
 
 // Rate limiting state (in-memory, resets on worker restart)
@@ -475,6 +488,382 @@ app.get("/api/trends", async (c) => {
 });
 
 // ============================================================================
+// Schedule Management Endpoints
+// ============================================================================
+
+/**
+ * GET /api/schedules - List all model schedules
+ */
+app.get("/api/schedules", async (c) => {
+  try {
+    const { results } = await c.env.DB.prepare(`
+      SELECT
+        s.id,
+        s.model_id,
+        s.cron_expression,
+        s.sample_size,
+        s.is_paused,
+        s.created_at,
+        s.updated_at,
+        m.display_name as model_name
+      FROM model_schedules s
+      JOIN models m ON s.model_id = m.id
+      ORDER BY m.display_name
+    `).all<{
+      id: string;
+      model_id: string;
+      cron_expression: string;
+      sample_size: number;
+      is_paused: number;
+      created_at: string;
+      updated_at: string;
+      model_name: string;
+    }>();
+
+    const schedules = (results || []).map((s) => ({
+      ...s,
+      is_paused: s.is_paused === 1,
+      description: describeSchedule(s.cron_expression),
+    }));
+
+    return c.json({ schedules });
+  } catch (error) {
+    console.error("Error fetching schedules:", error);
+    return c.json({ error: "Failed to fetch schedules" }, 500);
+  }
+});
+
+/**
+ * POST /api/schedules - Create or update a model schedule
+ * Body: { model_id: string, cron_expression: string, sample_size: number }
+ */
+app.post("/api/schedules", async (c) => {
+  // Auth check
+  const apiKeyValid = verifyAdminAuth(c.req.header("Authorization"), c.env.ADMIN_API_KEY);
+  const accessJwt = c.req.header("Cf-Access-Jwt-Assertion");
+  const accessResult = await verifyAccessJwt(accessJwt, c.env.CF_ACCESS_TEAM_DOMAIN, c.env.CF_ACCESS_AUD);
+
+  if (!apiKeyValid && !accessResult.valid) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  try {
+    const body = await c.req.json<{
+      model_id: string;
+      cron_expression: string;
+      sample_size: number;
+    }>();
+
+    if (!body.model_id || !body.cron_expression || !body.sample_size) {
+      return c.json({ error: "Missing required fields" }, 400);
+    }
+
+    // Validate model exists
+    const model = await getModelById(c.env.DB, body.model_id);
+    if (!model) {
+      return c.json({ error: `Unknown model_id: ${body.model_id}` }, 400);
+    }
+
+    // Validate cron expression (basic check)
+    const cronParts = body.cron_expression.trim().split(/\s+/);
+    if (cronParts.length !== 5) {
+      return c.json({ error: "Invalid cron expression (must be 5 fields)" }, 400);
+    }
+
+    const id = crypto.randomUUID();
+    await c.env.DB.prepare(`
+      INSERT INTO model_schedules (id, model_id, cron_expression, sample_size, updated_at)
+      VALUES (?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(model_id) DO UPDATE SET
+        cron_expression = excluded.cron_expression,
+        sample_size = excluded.sample_size,
+        updated_at = datetime('now')
+    `).bind(id, body.model_id, body.cron_expression, body.sample_size).run();
+
+    return c.json({ success: true, model_id: body.model_id });
+  } catch (error) {
+    console.error("Error creating schedule:", error);
+    return c.json({ error: "Failed to create schedule" }, 500);
+  }
+});
+
+/**
+ * DELETE /api/schedules/:model_id - Remove a model schedule
+ */
+app.delete("/api/schedules/:model_id", async (c) => {
+  // Auth check
+  const apiKeyValid = verifyAdminAuth(c.req.header("Authorization"), c.env.ADMIN_API_KEY);
+  const accessJwt = c.req.header("Cf-Access-Jwt-Assertion");
+  const accessResult = await verifyAccessJwt(accessJwt, c.env.CF_ACCESS_TEAM_DOMAIN, c.env.CF_ACCESS_AUD);
+
+  if (!apiKeyValid && !accessResult.valid) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  try {
+    const modelId = c.req.param("model_id");
+    await c.env.DB.prepare(`DELETE FROM model_schedules WHERE model_id = ?`).bind(modelId).run();
+    return c.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting schedule:", error);
+    return c.json({ error: "Failed to delete schedule" }, 500);
+  }
+});
+
+/**
+ * PATCH /api/schedules/:model_id/pause - Pause or unpause a schedule
+ * Body: { is_paused: boolean }
+ */
+app.patch("/api/schedules/:model_id/pause", async (c) => {
+  // Auth check
+  const apiKeyValid = verifyAdminAuth(c.req.header("Authorization"), c.env.ADMIN_API_KEY);
+  const accessJwt = c.req.header("Cf-Access-Jwt-Assertion");
+  const accessResult = await verifyAccessJwt(accessJwt, c.env.CF_ACCESS_TEAM_DOMAIN, c.env.CF_ACCESS_AUD);
+
+  if (!apiKeyValid && !accessResult.valid) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  try {
+    const modelId = c.req.param("model_id");
+    const body = await c.req.json<{ is_paused: boolean }>();
+
+    await c.env.DB.prepare(`
+      UPDATE model_schedules
+      SET is_paused = ?, updated_at = datetime('now')
+      WHERE model_id = ?
+    `).bind(body.is_paused ? 1 : 0, modelId).run();
+
+    return c.json({ success: true, is_paused: body.is_paused });
+  } catch (error) {
+    console.error("Error updating schedule:", error);
+    return c.json({ error: "Failed to update schedule" }, 500);
+  }
+});
+
+// ============================================================================
+// Container Run Endpoints
+// ============================================================================
+
+/**
+ * GET /api/container-runs - List recent container benchmark runs
+ */
+app.get("/api/container-runs", async (c) => {
+  try {
+    const limit = Math.min(parseInt(c.req.query("limit") || "20"), 100);
+    const { results } = await c.env.DB.prepare(`
+      SELECT
+        r.id,
+        r.model_id,
+        r.sample_size,
+        r.status,
+        r.trigger_type,
+        r.progress_current,
+        r.progress_total,
+        r.started_at,
+        r.completed_at,
+        r.error_message,
+        r.created_at,
+        m.display_name as model_name
+      FROM container_runs r
+      JOIN models m ON r.model_id = m.id
+      ORDER BY r.created_at DESC
+      LIMIT ?
+    `).bind(limit).all<{
+      id: string;
+      model_id: string;
+      sample_size: number;
+      status: string;
+      trigger_type: string;
+      progress_current: number;
+      progress_total: number;
+      started_at: string | null;
+      completed_at: string | null;
+      error_message: string | null;
+      created_at: string;
+      model_name: string;
+    }>();
+
+    return c.json({ runs: results || [] });
+  } catch (error) {
+    console.error("Error fetching container runs:", error);
+    return c.json({ error: "Failed to fetch container runs" }, 500);
+  }
+});
+
+/**
+ * POST /api/container-runs - Start a new benchmark run
+ * Body: { model_id: string, sample_size: number }
+ */
+app.post("/api/container-runs", async (c) => {
+  // Auth check
+  const apiKeyValid = verifyAdminAuth(c.req.header("Authorization"), c.env.ADMIN_API_KEY);
+  const accessJwt = c.req.header("Cf-Access-Jwt-Assertion");
+  const accessResult = await verifyAccessJwt(accessJwt, c.env.CF_ACCESS_TEAM_DOMAIN, c.env.CF_ACCESS_AUD);
+
+  if (!apiKeyValid && !accessResult.valid) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  try {
+    const body = await c.req.json<{
+      model_id: string;
+      sample_size: number;
+    }>();
+
+    if (!body.model_id || !body.sample_size) {
+      return c.json({ error: "Missing required fields" }, 400);
+    }
+
+    // Validate model exists
+    const model = await getModelById(c.env.DB, body.model_id);
+    if (!model) {
+      return c.json({ error: `Unknown model_id: ${body.model_id}` }, 400);
+    }
+
+    // Create run record
+    const runId = crypto.randomUUID();
+    await c.env.DB.prepare(`
+      INSERT INTO container_runs (id, model_id, sample_size, status, trigger_type, progress_total)
+      VALUES (?, ?, ?, 'pending', 'manual', ?)
+    `).bind(runId, body.model_id, body.sample_size, body.sample_size).run();
+
+    // Get callback URL for container to report back
+    const url = new URL(c.req.url);
+    const callbackUrl = `${url.protocol}//${url.host}/api/container-runs/${runId}/callback`;
+
+    // Start benchmark in container
+    try {
+      await startBenchmarkInContainer(
+        c.env.BENCHMARK_CONTAINER,
+        {
+          runId,
+          modelId: body.model_id,
+          modelName: model.model_name,
+          provider: model.provider,
+          sampleSize: body.sample_size,
+          callbackUrl,
+        },
+        {
+          anthropic: c.env.ANTHROPIC_API_KEY,
+          openai: c.env.OPENAI_API_KEY,
+          google: c.env.GOOGLE_API_KEY,
+        }
+      );
+
+      // Update status to running
+      await c.env.DB.prepare(`
+        UPDATE container_runs SET status = 'running', started_at = datetime('now')
+        WHERE id = ?
+      `).bind(runId).run();
+    } catch (err) {
+      // Update status to failed
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      await c.env.DB.prepare(`
+        UPDATE container_runs SET status = 'failed', error_message = ?
+        WHERE id = ?
+      `).bind(errorMsg, runId).run();
+
+      return c.json({ error: `Failed to start container: ${errorMsg}` }, 500);
+    }
+
+    return c.json({ success: true, run_id: runId }, 201);
+  } catch (error) {
+    console.error("Error starting container run:", error);
+    return c.json({ error: "Failed to start benchmark" }, 500);
+  }
+});
+
+/**
+ * POST /api/container-runs/:id/callback - Callback from container to report progress/completion
+ * Body: { type: 'progress' | 'complete' | 'error', ... }
+ */
+app.post("/api/container-runs/:id/callback", async (c) => {
+  try {
+    const runId = c.req.param("id");
+    const body = await c.req.json<{
+      type: 'progress' | 'complete' | 'error';
+      current?: number;
+      total?: number;
+      latestResult?: { problemId: string; passed: boolean; errorType: string | null; latencyMs: number };
+      // Complete payload
+      runId?: string;
+      modelId?: string;
+      score?: number;
+      passedCount?: number;
+      totalCount?: number;
+      inputTokens?: number;
+      outputTokens?: number;
+      inputCost?: number;
+      outputCost?: number;
+      durationSeconds?: number;
+      problems?: Array<{ problemId: string; passed: boolean; errorType: string | null; latencyMs: number }>;
+      // Error payload
+      error?: string;
+    }>();
+
+    if (body.type === 'progress') {
+      await c.env.DB.prepare(`
+        UPDATE container_runs
+        SET progress_current = ?, progress_total = ?
+        WHERE id = ?
+      `).bind(body.current || 0, body.total || 0, runId).run();
+    } else if (body.type === 'complete') {
+      // Mark container run as completed
+      await c.env.DB.prepare(`
+        UPDATE container_runs
+        SET status = 'completed', completed_at = datetime('now'),
+            progress_current = progress_total
+        WHERE id = ?
+      `).bind(runId).run();
+
+      // Create benchmark_run record with results
+      if (body.modelId && body.score !== undefined) {
+        const benchmarkRunInput: CreateRunInput = {
+          model_id: body.modelId,
+          run_date: new Date().toISOString(),
+          sample_size: body.totalCount || 0,
+          score: body.score,
+          passed_count: body.passedCount || 0,
+          total_count: body.totalCount || 0,
+          input_tokens: body.inputTokens || 0,
+          output_tokens: body.outputTokens || 0,
+          input_cost: body.inputCost || 0,
+          output_cost: body.outputCost || 0,
+          duration_seconds: body.durationSeconds || 0,
+          status: "completed",
+        };
+
+        const benchmarkRunId = await createRun(c.env.DB, benchmarkRunInput);
+
+        // Create problem results
+        if (body.problems && body.problems.length > 0) {
+          const problemInputs: CreateProblemResultInput[] = body.problems.map((p) => ({
+            run_id: benchmarkRunId,
+            problem_id: p.problemId,
+            passed: p.passed,
+            error_type: p.errorType || undefined,
+            latency_ms: p.latencyMs,
+          }));
+          await createProblemResults(c.env.DB, problemInputs);
+        }
+      }
+    } else if (body.type === 'error') {
+      await c.env.DB.prepare(`
+        UPDATE container_runs
+        SET status = 'failed', error_message = ?, completed_at = datetime('now')
+        WHERE id = ?
+      `).bind(body.error || 'Unknown error', runId).run();
+    }
+
+    return c.json({ success: true });
+  } catch (error) {
+    console.error("Error processing callback:", error);
+    return c.json({ error: "Failed to process callback" }, 500);
+  }
+});
+
+// ============================================================================
 // Admin Endpoints (Protected)
 // ============================================================================
 
@@ -673,7 +1062,7 @@ app.post("/api/admin/trigger-benchmark", async (c) => {
     const body = await c.req.json<{
       model?: string;
       sample_size?: string;
-    }>().catch(() => ({}));
+    }>().catch(() => ({ model: undefined, sample_size: undefined }));
 
     const model = body.model || "claude-opus-4-5-20251101";
     const sampleSize = body.sample_size || "100";
@@ -731,4 +1120,126 @@ app.all("*", async (c) => {
   return c.env.ASSETS.fetch(c.req.raw);
 });
 
-export default app;
+// ============================================================================
+// Cron Handler for Scheduled Benchmarks
+// ============================================================================
+
+async function runScheduledBenchmarks(env: Bindings, scheduledTime: Date): Promise<void> {
+  console.log(`Running scheduled benchmarks at ${scheduledTime.toISOString()}`);
+
+  // Get all active schedules
+  const { results: schedules } = await env.DB.prepare(`
+    SELECT
+      s.model_id,
+      s.cron_expression,
+      s.sample_size,
+      m.model_name,
+      m.provider
+    FROM model_schedules s
+    JOIN models m ON s.model_id = m.id
+    WHERE s.is_paused = 0
+  `).all<{
+    model_id: string;
+    cron_expression: string;
+    sample_size: number;
+    model_name: string;
+    provider: string;
+  }>();
+
+  if (!schedules || schedules.length === 0) {
+    console.log('No active schedules found');
+    return;
+  }
+
+  // Get scheduler DO for deduplication
+  const schedulerDO = getSchedulerDO(env.BENCHMARK_SCHEDULER);
+  const scheduledMinute = truncateToMinute(scheduledTime);
+
+  for (const schedule of schedules) {
+    // Check if cron matches
+    if (!cronMatchesNow(schedule.cron_expression, scheduledTime)) {
+      continue;
+    }
+
+    // Try to claim this execution (prevents duplicates)
+    const claimResponse = await schedulerDO.fetch('http://do/claim', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        modelId: schedule.model_id,
+        scheduledMinute,
+      }),
+    });
+    const { claimed } = await claimResponse.json<{ claimed: boolean }>();
+
+    if (!claimed) {
+      console.log(`Skipping ${schedule.model_id} - already claimed for ${scheduledMinute}`);
+      continue;
+    }
+
+    console.log(`Starting scheduled benchmark for ${schedule.model_id}`);
+
+    // Create run record
+    const runId = crypto.randomUUID();
+    await env.DB.prepare(`
+      INSERT INTO container_runs (id, model_id, sample_size, status, trigger_type, progress_total)
+      VALUES (?, ?, ?, 'pending', 'scheduled', ?)
+    `).bind(runId, schedule.model_id, schedule.sample_size, schedule.sample_size).run();
+
+    // Start benchmark in container
+    try {
+      // Note: In scheduled context we don't have the request URL, so use a configured base URL
+      // For now, we'll use a placeholder - in production, this should be configured
+      const callbackUrl = `https://benchmarks.emilycogsdill.com/api/container-runs/${runId}/callback`;
+
+      await startBenchmarkInContainer(
+        env.BENCHMARK_CONTAINER,
+        {
+          runId,
+          modelId: schedule.model_id,
+          modelName: schedule.model_name,
+          provider: schedule.provider,
+          sampleSize: schedule.sample_size,
+          callbackUrl,
+        },
+        {
+          anthropic: env.ANTHROPIC_API_KEY,
+          openai: env.OPENAI_API_KEY,
+          google: env.GOOGLE_API_KEY,
+        }
+      );
+
+      // Update status to running
+      await env.DB.prepare(`
+        UPDATE container_runs SET status = 'running', started_at = datetime('now')
+        WHERE id = ?
+      `).bind(runId).run();
+
+      console.log(`Started container for ${schedule.model_id}, run ${runId}`);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      console.error(`Failed to start benchmark for ${schedule.model_id}:`, errorMsg);
+
+      await env.DB.prepare(`
+        UPDATE container_runs SET status = 'failed', error_message = ?
+        WHERE id = ?
+      `).bind(errorMsg, runId).run();
+    }
+  }
+
+  // Cleanup old claims (older than 1 hour)
+  const oneHourAgo = new Date(scheduledTime.getTime() - 60 * 60 * 1000);
+  await schedulerDO.fetch('http://do/cleanup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ olderThanMinute: truncateToMinute(oneHourAgo) }),
+  });
+}
+
+// Export the worker with both fetch and scheduled handlers
+export default {
+  fetch: app.fetch,
+  async scheduled(event: ScheduledEvent, env: Bindings, ctx: ExecutionContext) {
+    ctx.waitUntil(runScheduledBenchmarks(env, new Date(event.scheduledTime)));
+  },
+};

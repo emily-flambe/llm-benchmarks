@@ -88,3 +88,39 @@ export interface WorkflowRun {
 export interface WorkflowRunsResponse {
   runs: WorkflowRun[];
 }
+
+// Container-based benchmark schedules
+export interface ModelSchedule {
+  id: string;
+  model_id: string;
+  model_display_name: string;
+  cron_expression: string;
+  sample_size: number;
+  is_paused: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SchedulesResponse {
+  schedules: ModelSchedule[];
+}
+
+// Container benchmark runs
+export interface ContainerRun {
+  id: string;
+  model_id: string;
+  model_display_name: string;
+  sample_size: number;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  trigger_type: 'manual' | 'scheduled';
+  progress_current: number | null;
+  progress_total: number | null;
+  started_at: string | null;
+  completed_at: string | null;
+  error_message: string | null;
+  created_at: string;
+}
+
+export interface ContainerRunsResponse {
+  runs: ContainerRun[];
+}

@@ -9,8 +9,9 @@ import RunDetails from './components/RunDetails';
 import AdminPanel from './components/AdminPanel';
 import ModelSelector from './components/ModelSelector';
 import WorkflowRuns from './components/WorkflowRuns';
+import Schedules from './components/Schedules';
 
-type TabType = 'dashboard' | 'workflows';
+type TabType = 'dashboard' | 'workflows' | 'schedules';
 
 const DEFAULT_MODEL_ID = 'claude-opus-4-5';
 
@@ -162,6 +163,12 @@ export default function App() {
         >
           Workflow Runs
         </button>
+        <button
+          className={`tab-btn ${activeTab === 'schedules' ? 'active' : ''}`}
+          onClick={() => setActiveTab('schedules')}
+        >
+          Schedules
+        </button>
       </nav>
 
       <main className="container" style={{ paddingBottom: '3rem' }}>
@@ -179,8 +186,10 @@ export default function App() {
               <RunsTable runs={runs} loading={loading} onRowClick={setSelectedRun} showModelColumn={selectedModelIds.length > 1} />
             </div>
           )
-        ) : (
+        ) : activeTab === 'workflows' ? (
           <WorkflowRuns />
+        ) : (
+          <Schedules />
         )}
       </main>
 
