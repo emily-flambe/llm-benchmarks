@@ -19,14 +19,18 @@ function formatModel(model: string, workflowName?: string): string {
     if (nameMatch) return nameMatch[1];
   }
 
-  // Map full model names to short display names
+  // Map model IDs to short display names
   const modelMap: Record<string, string> = {
+    // Full model names (from API)
     'claude-opus-4-5-20251101': 'Opus 4.5',
     'claude-sonnet-4-20250514': 'Sonnet 4',
-    'claude-sonnet-4': 'Sonnet 4',
     'gpt-4.1': 'GPT-4.1',
-    'o3': 'o3',
     'gemini-2.5-pro': 'Gemini 2.5 Pro',
+    // Short model IDs (from workflow_executions)
+    'claude-opus-4-5': 'Opus 4.5',
+    'claude-sonnet-4': 'Sonnet 4',
+    'gpt-4-1': 'GPT-4.1',
+    'o3': 'o3',
   };
   return modelMap[model] || model;
 }
