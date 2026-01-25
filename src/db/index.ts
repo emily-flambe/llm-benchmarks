@@ -48,6 +48,7 @@ export interface ProblemResult {
 export interface BenchmarkRunWithModel extends BenchmarkRun {
   model_display_name: string;
   model_provider: string;
+  trigger_source?: string;
 }
 
 // Input types for creating records
@@ -123,27 +124,37 @@ export async function getRecentRuns(
   db: D1Database,
   limit: number = 20,
   offset: number = 0,
-  modelIds?: string[]
+  modelIds?: string[],
+  includeRunning: boolean = false
 ): Promise<BenchmarkRunWithModel[]> {
   let query = `
     SELECT
       r.*,
       m.display_name as model_display_name,
-      m.provider as model_provider
+      m.provider as model_provider,
+      w.trigger_source
     FROM benchmark_runs r
     JOIN models m ON r.model_id = m.id
-    WHERE r.status = 'completed'
+    LEFT JOIN workflow_executions w ON r.github_run_id = w.github_run_id
   `;
 
   const params: (string | number)[] = [];
+  const conditions: string[] = [];
+
+  if (includeRunning) {
+    conditions.push("r.status IN ('completed', 'running')");
+  } else {
+    conditions.push("r.status = 'completed'");
+  }
 
   if (modelIds && modelIds.length > 0) {
     const placeholders = modelIds.map(() => "?").join(", ");
-    query += ` AND r.model_id IN (${placeholders})`;
+    conditions.push(`r.model_id IN (${placeholders})`);
     params.push(...modelIds);
   }
 
-  query += " ORDER BY r.run_date DESC, r.created_at DESC LIMIT ? OFFSET ?";
+  query += " WHERE " + conditions.join(" AND ");
+  query += " ORDER BY r.created_at DESC LIMIT ? OFFSET ?";
   params.push(limit, offset);
 
   const { results } = await db
@@ -323,9 +334,13 @@ export async function createProblemResults(
  */
 export async function getRunCount(
   db: D1Database,
-  modelIds?: string[]
+  modelIds?: string[],
+  includeRunning: boolean = false
 ): Promise<number> {
-  let query = "SELECT COUNT(*) as count FROM benchmark_runs WHERE status = 'completed'";
+  const statusCondition = includeRunning
+    ? "status IN ('completed', 'running')"
+    : "status = 'completed'";
+  let query = `SELECT COUNT(*) as count FROM benchmark_runs WHERE ${statusCondition}`;
   const params: string[] = [];
 
   if (modelIds && modelIds.length > 0) {

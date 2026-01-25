@@ -1,18 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
 
-interface WorkflowRun {
-  id: number;
-  run_number: number;
-  name: string;
-  status: 'queued' | 'in_progress' | 'completed';
-  conclusion: 'success' | 'failure' | 'cancelled' | null;
+interface BenchmarkRun {
+  id: string;
+  model_id: string;
+  model_display_name: string;
+  run_date: string;
+  sample_size: number | null;
+  score: number | null;
+  duration_seconds: number | null;
+  github_run_id: string | null;
+  status: string;
   created_at: string;
-  updated_at: string;
-  html_url: string;
-  event: string;
-  model: string;
-  sample_size: string;
-  trigger_source: string;
+  trigger_source: string | null;
 }
 
 function formatTime(dateString: string): string {
@@ -26,12 +25,8 @@ function formatTime(dateString: string): string {
   });
 }
 
-function formatDuration(createdAt: string, updatedAt: string): string {
-  const start = new Date(createdAt);
-  const end = new Date(updatedAt);
-  const seconds = Math.floor((end.getTime() - start.getTime()) / 1000);
-
-  if (seconds < 0) return '--';
+function formatDuration(seconds: number | null): string {
+  if (seconds === null || seconds < 0) return '--';
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = seconds % 60;
@@ -41,33 +36,23 @@ function formatDuration(createdAt: string, updatedAt: string): string {
   return `${hours}h ${remainingMinutes}m`;
 }
 
-function StatusBadge({ status, conclusion }: { status: string; conclusion: string | null }) {
+function StatusBadge({ status, score }: { status: string; score: number | null }) {
   let bg: string;
   let text: string;
   let label: string;
 
   if (status === 'completed') {
-    if (conclusion === 'success') {
-      bg = 'rgba(34, 197, 94, 0.15)';
-      text = '#22c55e';
-      label = 'Success';
-    } else if (conclusion === 'failure') {
-      bg = 'rgba(239, 68, 68, 0.15)';
-      text = '#ef4444';
-      label = 'Failed';
-    } else {
-      bg = 'rgba(107, 114, 128, 0.15)';
-      text = '#6b7280';
-      label = conclusion || 'Unknown';
-    }
-  } else if (status === 'in_progress') {
+    bg = 'rgba(34, 197, 94, 0.15)';
+    text = '#22c55e';
+    label = score !== null ? `${(score * 100).toFixed(1)}%` : 'Done';
+  } else if (status === 'running') {
     bg = 'rgba(59, 130, 246, 0.15)';
     text = '#3b82f6';
     label = 'Running';
   } else {
     bg = 'rgba(234, 179, 8, 0.15)';
     text = '#eab308';
-    label = 'Queued';
+    label = 'Pending';
   }
 
   return (
@@ -84,7 +69,7 @@ function StatusBadge({ status, conclusion }: { status: string; conclusion: strin
         fontWeight: 500,
       }}
     >
-      {status === 'in_progress' && (
+      {status === 'running' && (
         <span
           style={{
             width: '6px',
@@ -100,21 +85,14 @@ function StatusBadge({ status, conclusion }: { status: string; conclusion: strin
   );
 }
 
-const MODEL_DISPLAY_NAMES: Record<string, string> = {
-  'claude-opus-4-5': 'Claude Opus 4.5',
-  'claude-sonnet-4': 'Claude Sonnet 4',
-  'gpt-4-1': 'GPT-4.1',
-  'o3': 'o3',
-};
-
 export default function RunHistory() {
-  const [runs, setRuns] = useState<WorkflowRun[]>([]);
+  const [runs, setRuns] = useState<BenchmarkRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const loadRuns = useCallback(async () => {
     try {
-      const response = await fetch('/api/workflow-runs', {
+      const response = await fetch('/api/runs?include_running=true&limit=30', {
         credentials: 'include',
       });
       if (!response.ok) {
@@ -194,13 +172,13 @@ export default function RunHistory() {
               {runs.map((run) => (
                 <tr key={run.id}>
                   <td style={{ fontWeight: 500 }}>
-                    {MODEL_DISPLAY_NAMES[run.model] || run.model}
+                    {run.model_display_name}
                   </td>
                   <td>
-                    <StatusBadge status={run.status} conclusion={run.conclusion} />
+                    <StatusBadge status={run.status} score={run.score} />
                   </td>
                   <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.875rem' }}>
-                    {run.sample_size}
+                    {run.sample_size ?? '--'}
                   </td>
                   <td>
                     <span
@@ -210,28 +188,30 @@ export default function RunHistory() {
                         textTransform: 'capitalize',
                       }}
                     >
-                      {run.trigger_source}
+                      {run.trigger_source || 'manual'}
                     </span>
                   </td>
                   <td style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
                     {formatTime(run.created_at)}
                   </td>
                   <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.875rem' }}>
-                    {formatDuration(run.created_at, run.updated_at)}
+                    {formatDuration(run.duration_seconds)}
                   </td>
                   <td>
-                    <a
-                      href={run.html_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{
-                        fontSize: '0.75rem',
-                        color: 'var(--accent)',
-                        textDecoration: 'none',
-                      }}
-                    >
-                      View
-                    </a>
+                    {run.github_run_id && (
+                      <a
+                        href={`https://github.com/emily-flambe/llm-benchmarks/actions/runs/${run.github_run_id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          fontSize: '0.75rem',
+                          color: 'var(--accent)',
+                          textDecoration: 'none',
+                        }}
+                      >
+                        View
+                      </a>
+                    )}
                   </td>
                 </tr>
               ))}

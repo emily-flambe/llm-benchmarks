@@ -291,10 +291,11 @@ app.get("/api/runs", async (c) => {
     const offset = Math.max(0, parseInt(c.req.query("offset") || "0") || 0);
     const modelIdsParam = c.req.query("model_ids");
     const modelIds = modelIdsParam ? modelIdsParam.split(",").filter(Boolean) : undefined;
+    const includeRunning = c.req.query("include_running") === "true";
 
     const [runs, total] = await Promise.all([
-      getRecentRuns(c.env.DB, limit, offset, modelIds),
-      getRunCount(c.env.DB, modelIds),
+      getRecentRuns(c.env.DB, limit, offset, modelIds, includeRunning),
+      getRunCount(c.env.DB, modelIds, includeRunning),
     ]);
 
     return c.json({
@@ -336,80 +337,6 @@ app.get("/api/runs/:id/problems", async (c) => {
   }
 });
 
-app.get("/api/workflow-runs", async (c) => {
-  try {
-    const response = await fetch(
-      "https://api.github.com/repos/emily-flambe/llm-benchmarks/actions/runs?per_page=30",
-      {
-        headers: {
-          "Authorization": `Bearer ${c.env.GITHUB_TOKEN}`,
-          "Accept": "application/vnd.github.v3+json",
-          "User-Agent": "llm-benchmarks-worker",
-        },
-      }
-    );
-
-    if (!response.ok) {
-      console.error("GitHub API error:", response.status);
-      return c.json({ error: "Failed to fetch workflow runs" }, 500);
-    }
-
-    const data = await response.json<{
-      workflow_runs: Array<{
-        id: number;
-        name: string;
-        status: string;
-        conclusion: string | null;
-        created_at: string;
-        updated_at: string;
-        html_url: string;
-        run_number: number;
-        event: string;
-      }>;
-    }>();
-
-    const workflowToModel: Record<string, string> = {
-      "Benchmark - Claude Opus 4.5": "claude-opus-4-5",
-      "Benchmark - Claude Sonnet 4": "claude-sonnet-4",
-      "Benchmark - GPT-4.1": "gpt-4-1",
-      "Benchmark - o3": "o3",
-    };
-
-    const { results: executions } = await c.env.DB.prepare(`
-      SELECT github_run_id, model_id, sample_size, trigger_source FROM workflow_executions
-    `).all<{ github_run_id: string; model_id: string; sample_size: number; trigger_source: string | null }>();
-
-    const metadataMap = new Map<string, { model_id: string; sample_size: number; trigger_source: string }>();
-    executions?.forEach((r) => metadataMap.set(r.github_run_id, { ...r, trigger_source: r.trigger_source || 'manual' }));
-
-    const runs = data.workflow_runs
-      .filter((run) => run.name.startsWith("Benchmark"))
-      .map((run) => {
-        const metadata = metadataMap.get(String(run.id));
-        return {
-          id: run.id,
-          run_number: run.run_number,
-          name: run.name,
-          status: run.status,
-          conclusion: run.conclusion,
-          created_at: run.created_at,
-          updated_at: run.updated_at,
-          html_url: run.html_url,
-          event: run.event,
-          model: metadata?.model_id || workflowToModel[run.name] || 'unknown',
-          sample_size: metadata?.sample_size?.toString() || '100',
-          trigger_source: metadata?.trigger_source || 'manual',
-        };
-      })
-      .filter((run) => run.model !== 'unknown');
-
-    return c.json({ runs });
-  } catch (error) {
-    console.error("Error fetching workflow runs:", error);
-    return c.json({ error: "Failed to fetch workflow runs" }, 500);
-  }
-});
-
 app.post("/api/workflow-executions", async (c) => {
   const authHeader = c.req.header("Authorization");
   const apiKey = authHeader?.replace("Bearer ", "");
@@ -432,12 +359,20 @@ app.post("/api/workflow-executions", async (c) => {
 
     const triggerSource = body.trigger_source || 'manual';
 
+    // Store in workflow_executions for metadata lookup
     await c.env.DB.prepare(`
       INSERT OR REPLACE INTO workflow_executions (github_run_id, model_id, sample_size, trigger_source)
       VALUES (?, ?, ?, ?)
     `).bind(body.github_run_id, body.model_id, body.sample_size, triggerSource).run();
 
-    return c.json({ success: true });
+    // Also create a pending benchmark_runs entry so it shows in run history
+    const runId = crypto.randomUUID();
+    await c.env.DB.prepare(`
+      INSERT INTO benchmark_runs (id, model_id, run_date, sample_size, github_run_id, status)
+      VALUES (?, ?, datetime('now'), ?, ?, 'running')
+    `).bind(runId, body.model_id, body.sample_size, body.github_run_id).run();
+
+    return c.json({ success: true, run_id: runId });
   } catch (error) {
     console.error("Error registering workflow execution:", error);
     return c.json({ error: "Failed to register workflow execution" }, 500);
@@ -773,23 +708,81 @@ app.post("/api/results", async (c) => {
       return c.json({ error: "Score must be between 0 and 1" }, 400);
     }
 
-    const runInput: CreateRunInput = {
-      model_id: body.model_id,
-      run_date: body.run_date,
-      sample_size: body.sample_size,
-      score: body.score,
-      passed_count: body.passed_count,
-      total_count: body.total_count,
-      input_tokens: body.input_tokens,
-      output_tokens: body.output_tokens,
-      input_cost: body.input_cost,
-      output_cost: body.output_cost,
-      duration_seconds: body.duration_seconds,
-      github_run_id: body.github_run_id,
-      status: "completed",
-    };
+    let runId: string;
 
-    const runId = await createRun(c.env.DB, runInput);
+    // Try to find existing running entry by github_run_id
+    if (body.github_run_id) {
+      const existing = await c.env.DB.prepare(
+        `SELECT id FROM benchmark_runs WHERE github_run_id = ? AND status = 'running'`
+      ).bind(body.github_run_id).first<{ id: string }>();
+
+      if (existing) {
+        // Update existing running entry
+        await c.env.DB.prepare(`
+          UPDATE benchmark_runs SET
+            run_date = ?,
+            sample_size = ?,
+            score = ?,
+            passed_count = ?,
+            total_count = ?,
+            input_tokens = ?,
+            output_tokens = ?,
+            input_cost = ?,
+            output_cost = ?,
+            duration_seconds = ?,
+            status = 'completed'
+          WHERE id = ?
+        `).bind(
+          body.run_date,
+          body.sample_size,
+          body.score,
+          body.passed_count,
+          body.total_count,
+          body.input_tokens,
+          body.output_tokens,
+          body.input_cost,
+          body.output_cost,
+          body.duration_seconds,
+          existing.id
+        ).run();
+        runId = existing.id;
+      } else {
+        // No existing entry, create new one
+        const runInput: CreateRunInput = {
+          model_id: body.model_id,
+          run_date: body.run_date,
+          sample_size: body.sample_size,
+          score: body.score,
+          passed_count: body.passed_count,
+          total_count: body.total_count,
+          input_tokens: body.input_tokens,
+          output_tokens: body.output_tokens,
+          input_cost: body.input_cost,
+          output_cost: body.output_cost,
+          duration_seconds: body.duration_seconds,
+          github_run_id: body.github_run_id,
+          status: "completed",
+        };
+        runId = await createRun(c.env.DB, runInput);
+      }
+    } else {
+      // No github_run_id, create new entry
+      const runInput: CreateRunInput = {
+        model_id: body.model_id,
+        run_date: body.run_date,
+        sample_size: body.sample_size,
+        score: body.score,
+        passed_count: body.passed_count,
+        total_count: body.total_count,
+        input_tokens: body.input_tokens,
+        output_tokens: body.output_tokens,
+        input_cost: body.input_cost,
+        output_cost: body.output_cost,
+        duration_seconds: body.duration_seconds,
+        status: "completed",
+      };
+      runId = await createRun(c.env.DB, runInput);
+    }
 
     if (body.problems && body.problems.length > 0) {
       const problemInputs: CreateProblemResultInput[] = body.problems.map((p) => ({
