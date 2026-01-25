@@ -44,9 +44,13 @@ jobs:
       - name: Upload results to API
         env:
           ADMIN_API_KEY: ${{ secrets.ADMIN_API_KEY }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           curl -X POST "https://benchmarks.emilycogsdill.com/api/results" \
             -H "Authorization: Bearer $ADMIN_API_KEY" \
+            -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+            -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
             -H "Content-Type: application/json" \
             -d @results.json \
             --fail-with-body
