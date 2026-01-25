@@ -32,18 +32,21 @@ export interface StartBenchmarkParams {
 /**
  * Start a benchmark run in a container
  */
+// Use a single shared container for all benchmarks
+// This ensures warmup keeps the same container hot that runs benchmarks
+const SHARED_CONTAINER_ID = 'benchmark-runner';
+
 /**
- * Warm up a container by calling its health endpoint
+ * Warm up the shared container by calling its health endpoint
  * This keeps the container running and prevents cold start timeouts
  */
 export async function warmupContainer(
   containerNamespace: DurableObjectNamespace<BenchmarkContainer>,
-  modelId: string
+  _modelId: string // Unused, kept for API compatibility
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const containerId = `warmup-${modelId}`;
     const container = containerNamespace.get(
-      containerNamespace.idFromName(containerId)
+      containerNamespace.idFromName(SHARED_CONTAINER_ID)
     );
 
     const response = await container.fetch('http://container/health', {
@@ -66,10 +69,9 @@ export async function startBenchmarkInContainer(
   params: StartBenchmarkParams,
   apiKeys: { anthropic?: string; openai?: string; google?: string }
 ): Promise<{ containerId: string }> {
-  // Use model ID as container name for easy identification
-  const containerId = `benchmark-${params.modelId}-${params.runId}`;
+  // Use shared container - same one that warmup keeps hot
   const container = containerNamespace.get(
-    containerNamespace.idFromName(containerId)
+    containerNamespace.idFromName(SHARED_CONTAINER_ID)
   );
 
   // Set environment variables for the container
@@ -91,5 +93,5 @@ export async function startBenchmarkInContainer(
     throw new Error(`Failed to start benchmark: ${error}`);
   }
 
-  return { containerId };
+  return { containerId: SHARED_CONTAINER_ID };
 }
