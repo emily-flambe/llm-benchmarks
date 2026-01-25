@@ -21,7 +21,7 @@ import {
   type CreateProblemResultInput,
 } from "./db";
 import { BenchmarkSchedulerDO, getSchedulerDO, truncateToMinute } from "./services/scheduler-do";
-import { BenchmarkContainer, startBenchmarkInContainer } from "./services/container";
+import { BenchmarkContainer, startBenchmarkInContainer, warmupContainer } from "./services/container";
 import { cronMatchesNow, describeSchedule } from "./services/cron";
 
 // Re-export Durable Objects and Container for wrangler
@@ -1151,6 +1151,19 @@ app.all("*", async (c) => {
 
 async function runScheduledBenchmarks(env: Bindings, scheduledTime: Date): Promise<void> {
   console.log(`Running scheduled benchmarks at ${scheduledTime.toISOString()}`);
+
+  // Warmup: Keep a container warm by pinging it every minute
+  // This prevents cold start timeouts when actually running benchmarks
+  try {
+    const warmupResult = await warmupContainer(env.BENCHMARK_CONTAINER, 'default');
+    if (warmupResult.success) {
+      console.log('Container warmup successful');
+    } else {
+      console.log(`Container warmup failed (expected on cold start): ${warmupResult.error}`);
+    }
+  } catch (err) {
+    console.log('Container warmup error (expected on first call):', err instanceof Error ? err.message : 'Unknown');
+  }
 
   // Get all active schedules
   const { results: schedules } = await env.DB.prepare(`

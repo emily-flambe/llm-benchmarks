@@ -32,6 +32,35 @@ export interface StartBenchmarkParams {
 /**
  * Start a benchmark run in a container
  */
+/**
+ * Warm up a container by calling its health endpoint
+ * This keeps the container running and prevents cold start timeouts
+ */
+export async function warmupContainer(
+  containerNamespace: DurableObjectNamespace<BenchmarkContainer>,
+  modelId: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const containerId = `warmup-${modelId}`;
+    const container = containerNamespace.get(
+      containerNamespace.idFromName(containerId)
+    );
+
+    const response = await container.fetch('http://container/health', {
+      method: 'GET',
+    });
+
+    if (!response.ok) {
+      return { success: false, error: `Health check failed: ${response.status}` };
+    }
+
+    return { success: true };
+  } catch (err) {
+    const error = err instanceof Error ? err.message : 'Unknown error';
+    return { success: false, error };
+  }
+}
+
 export async function startBenchmarkInContainer(
   containerNamespace: DurableObjectNamespace<BenchmarkContainer>,
   params: StartBenchmarkParams,
