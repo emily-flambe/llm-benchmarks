@@ -60,7 +60,7 @@ export interface ModelSchedule {
   model_id: string;
   model_display_name: string;
   cron_expression: string;
-  sample_size: number;
+  sample_size: number | null;
   is_paused: boolean;
   created_at: string;
   updated_at: string;

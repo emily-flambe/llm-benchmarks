@@ -80,6 +80,23 @@ function verifyAdminAuth(
   return token === apiKey;
 }
 
+// Extract Access JWT from header or cookie
+function getAccessJwt(req: { header: (name: string) => string | undefined }): string | undefined {
+  // First check the header (set by Access for protected paths)
+  let jwt = req.header("Cf-Access-Jwt-Assertion");
+
+  // Also check the cookie (set by Access after login, sent on all requests)
+  if (!jwt) {
+    const cookies = req.header("Cookie") || "";
+    const match = cookies.match(/CF_Authorization=([^;]+)/);
+    if (match) {
+      jwt = match[1];
+    }
+  }
+
+  return jwt;
+}
+
 // Verify Cloudflare Access JWT
 async function verifyAccessJwt(
   jwt: string | undefined,
@@ -92,7 +109,8 @@ async function verifyAccessJwt(
 
   try {
     // Fetch the public keys from Cloudflare Access
-    const certsUrl = `https://${teamDomain}.cloudflareaccess.com/cdn-cgi/access/certs`;
+    // teamDomain is the full URL like https://emilycogsdill.cloudflareaccess.com
+    const certsUrl = `${teamDomain}/cdn-cgi/access/certs`;
     const certsResponse = await fetch(certsUrl);
     if (!certsResponse.ok) {
       console.error("Failed to fetch Access certs");
@@ -188,18 +206,7 @@ app.get("/api/health", async (c) => {
  * It checks for the CF_Authorization cookie which Access sets after login.
  */
 app.get("/api/auth/status", async (c) => {
-  // Check for JWT in header (set by Access for protected paths)
-  let accessJwt = c.req.header("Cf-Access-Jwt-Assertion");
-
-  // Also check for JWT in cookie (set by Access after login, sent on all requests)
-  if (!accessJwt) {
-    const cookies = c.req.header("Cookie") || "";
-    const match = cookies.match(/CF_Authorization=([^;]+)/);
-    if (match) {
-      accessJwt = match[1];
-    }
-  }
-
+  const accessJwt = getAccessJwt(c.req);
   const accessResult = await verifyAccessJwt(
     accessJwt,
     c.env.CF_ACCESS_TEAM_DOMAIN,
@@ -231,14 +238,25 @@ app.get("/api/auth/logout", async (c) => {
 });
 
 /**
- * GET /api/auth/login - Trigger Cloudflare Access login then redirect home
- * This endpoint is protected by Access, so visiting it triggers login.
- * After login, redirect back to the home page.
+ * GET /api/auth/login - Redirect to Cloudflare Access login
+ * Constructs the Access login URL and redirects user to authenticate.
  */
 app.get("/api/auth/login", async (c) => {
-  // If we get here, the user is authenticated (Access let them through)
-  // Redirect to home page
-  return c.redirect("/");
+  const teamDomain = c.env.CF_ACCESS_TEAM_DOMAIN; // e.g., https://emilycogsdill.cloudflareaccess.com
+  const aud = c.env.CF_ACCESS_AUD;
+
+  if (!teamDomain || !aud) {
+    return c.json({ error: "Access not configured" }, 500);
+  }
+
+  // Get the current URL to redirect back after login
+  const url = new URL(c.req.url);
+  const redirectUrl = `${url.protocol}//${url.host}/`;
+
+  // Cloudflare Access login URL format (teamDomain already includes https://...)
+  const accessLoginUrl = `${teamDomain}/cdn-cgi/access/login?kid=${aud}&redirect_url=${encodeURIComponent(redirectUrl)}`;
+
+  return c.redirect(accessLoginUrl);
 });
 
 // ============================================================================
@@ -538,9 +556,9 @@ app.get("/api/schedules", async (c) => {
  * Body: { model_id: string, cron_expression: string, sample_size: number }
  */
 app.post("/api/schedules", async (c) => {
-  // Auth check
+  // Auth check - supports API key OR Cloudflare Access (header or cookie)
   const apiKeyValid = verifyAdminAuth(c.req.header("Authorization"), c.env.ADMIN_API_KEY);
-  const accessJwt = c.req.header("Cf-Access-Jwt-Assertion");
+  const accessJwt = getAccessJwt(c.req);
   const accessResult = await verifyAccessJwt(accessJwt, c.env.CF_ACCESS_TEAM_DOMAIN, c.env.CF_ACCESS_AUD);
 
   if (!apiKeyValid && !accessResult.valid) {
@@ -551,11 +569,11 @@ app.post("/api/schedules", async (c) => {
     const body = await c.req.json<{
       model_id: string;
       cron_expression: string;
-      sample_size: number;
+      sample_size?: number;
     }>();
 
-    if (!body.model_id || !body.cron_expression || !body.sample_size) {
-      return c.json({ error: "Missing required fields" }, 400);
+    if (!body.model_id || !body.cron_expression) {
+      return c.json({ error: "Missing required fields (model_id, cron_expression)" }, 400);
     }
 
     // Validate model exists
@@ -571,6 +589,7 @@ app.post("/api/schedules", async (c) => {
     }
 
     const id = crypto.randomUUID();
+    // sample_size is optional - null means full benchmark
     await c.env.DB.prepare(`
       INSERT INTO model_schedules (id, model_id, cron_expression, sample_size, updated_at)
       VALUES (?, ?, ?, ?, datetime('now'))
@@ -578,7 +597,7 @@ app.post("/api/schedules", async (c) => {
         cron_expression = excluded.cron_expression,
         sample_size = excluded.sample_size,
         updated_at = datetime('now')
-    `).bind(id, body.model_id, body.cron_expression, body.sample_size).run();
+    `).bind(id, body.model_id, body.cron_expression, body.sample_size ?? null).run();
 
     return c.json({ success: true, model_id: body.model_id });
   } catch (error) {
@@ -591,9 +610,9 @@ app.post("/api/schedules", async (c) => {
  * DELETE /api/schedules/:model_id - Remove a model schedule
  */
 app.delete("/api/schedules/:model_id", async (c) => {
-  // Auth check
+  // Auth check - supports API key OR Cloudflare Access (header or cookie)
   const apiKeyValid = verifyAdminAuth(c.req.header("Authorization"), c.env.ADMIN_API_KEY);
-  const accessJwt = c.req.header("Cf-Access-Jwt-Assertion");
+  const accessJwt = getAccessJwt(c.req);
   const accessResult = await verifyAccessJwt(accessJwt, c.env.CF_ACCESS_TEAM_DOMAIN, c.env.CF_ACCESS_AUD);
 
   if (!apiKeyValid && !accessResult.valid) {
@@ -615,9 +634,9 @@ app.delete("/api/schedules/:model_id", async (c) => {
  * Body: { is_paused: boolean }
  */
 app.patch("/api/schedules/:model_id/pause", async (c) => {
-  // Auth check
+  // Auth check - supports API key OR Cloudflare Access (header or cookie)
   const apiKeyValid = verifyAdminAuth(c.req.header("Authorization"), c.env.ADMIN_API_KEY);
-  const accessJwt = c.req.header("Cf-Access-Jwt-Assertion");
+  const accessJwt = getAccessJwt(c.req);
   const accessResult = await verifyAccessJwt(accessJwt, c.env.CF_ACCESS_TEAM_DOMAIN, c.env.CF_ACCESS_AUD);
 
   if (!apiKeyValid && !accessResult.valid) {
@@ -696,9 +715,9 @@ app.get("/api/container-runs", async (c) => {
  * Body: { model_id: string, sample_size: number }
  */
 app.post("/api/container-runs", async (c) => {
-  // Auth check
+  // Auth check - supports API key OR Cloudflare Access (header or cookie)
   const apiKeyValid = verifyAdminAuth(c.req.header("Authorization"), c.env.ADMIN_API_KEY);
-  const accessJwt = c.req.header("Cf-Access-Jwt-Assertion");
+  const accessJwt = getAccessJwt(c.req);
   const accessResult = await verifyAccessJwt(accessJwt, c.env.CF_ACCESS_TEAM_DOMAIN, c.env.CF_ACCESS_AUD);
 
   if (!apiKeyValid && !accessResult.valid) {
@@ -893,9 +912,9 @@ app.post("/api/container-runs/:id/callback", async (c) => {
  * }
  */
 app.post("/api/results", async (c) => {
-  // Auth check - accept API key OR Cloudflare Access JWT
+  // Auth check - supports API key OR Cloudflare Access (header or cookie)
   const apiKeyValid = verifyAdminAuth(c.req.header("Authorization"), c.env.ADMIN_API_KEY);
-  const accessJwt = c.req.header("Cf-Access-Jwt-Assertion");
+  const accessJwt = getAccessJwt(c.req);
   const accessResult = await verifyAccessJwt(accessJwt, c.env.CF_ACCESS_TEAM_DOMAIN, c.env.CF_ACCESS_AUD);
 
   if (!apiKeyValid && !accessResult.valid) {
@@ -1043,9 +1062,9 @@ app.post("/api/results", async (c) => {
  * }
  */
 app.post("/api/admin/trigger-benchmark", async (c) => {
-  // Auth check - accept API key OR Cloudflare Access JWT
+  // Auth check - supports API key OR Cloudflare Access (header or cookie)
   const apiKeyValid = verifyAdminAuth(c.req.header("Authorization"), c.env.ADMIN_API_KEY);
-  const accessJwt = c.req.header("Cf-Access-Jwt-Assertion");
+  const accessJwt = getAccessJwt(c.req);
   const accessResult = await verifyAccessJwt(accessJwt, c.env.CF_ACCESS_TEAM_DOMAIN, c.env.CF_ACCESS_AUD);
 
   if (!apiKeyValid && !accessResult.valid) {

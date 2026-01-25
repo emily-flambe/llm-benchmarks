@@ -9,18 +9,6 @@ import {
 } from '../api';
 import type { ModelSchedule, Model } from '../types';
 
-const CRON_PRESETS = [
-  { label: 'Daily at 6am UTC', value: '0 6 * * *' },
-  { label: 'Daily at midnight UTC', value: '0 0 * * *' },
-  { label: 'Every 12 hours', value: '0 */12 * * *' },
-  { label: 'Weekly (Sunday 6am UTC)', value: '0 6 * * 0' },
-];
-
-function describeCron(cron: string): string {
-  const presetMatch = CRON_PRESETS.find((p) => p.value === cron);
-  if (presetMatch) return presetMatch.label;
-  return cron;
-}
 
 export default function Schedules() {
   const [schedules, setSchedules] = useState<ModelSchedule[]>([]);
@@ -31,14 +19,14 @@ export default function Schedules() {
   // Form state for creating new schedule
   const [showForm, setShowForm] = useState(false);
   const [formModelId, setFormModelId] = useState('');
-  const [formCron, setFormCron] = useState('0 6 * * *');
-  const [formSampleSize, setFormSampleSize] = useState(100);
+  const [formCron, setFormCron] = useState('');
+  const [formSampleSize, setFormSampleSize] = useState('');
   const [formSubmitting, setFormSubmitting] = useState(false);
 
   // Ad-hoc run modal state
   const [showRunModal, setShowRunModal] = useState(false);
   const [runModelId, setRunModelId] = useState('');
-  const [runSampleSize, setRunSampleSize] = useState(100);
+  const [runSampleSize, setRunSampleSize] = useState('');
   const [runSubmitting, setRunSubmitting] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -68,17 +56,19 @@ export default function Schedules() {
 
   const handleCreateSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formModelId) return;
+    if (!formModelId || !formCron) return;
 
     setFormSubmitting(true);
     try {
       await createSchedule({
         model_id: formModelId,
         cron_expression: formCron,
-        sample_size: formSampleSize,
+        sample_size: formSampleSize ? parseInt(formSampleSize) : undefined,
       });
       setShowForm(false);
       setFormModelId('');
+      setFormCron('');
+      setFormSampleSize('');
       await loadData();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to create schedule');
@@ -114,10 +104,11 @@ export default function Schedules() {
     try {
       await startContainerRun({
         model_id: runModelId,
-        sample_size: runSampleSize,
+        sample_size: runSampleSize ? parseInt(runSampleSize) : undefined,
       });
       setShowRunModal(false);
       setRunModelId('');
+      setRunSampleSize('');
       alert('Benchmark started. Results will appear on the Dashboard when complete.');
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to start run');
@@ -180,9 +171,9 @@ export default function Schedules() {
                 <tr key={schedule.id}>
                   <td>{schedule.model_display_name}</td>
                   <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.875rem' }}>
-                    {describeCron(schedule.cron_expression)}
+                    {schedule.cron_expression}
                   </td>
-                  <td>{schedule.sample_size}</td>
+                  <td>{schedule.sample_size ?? 'Full'}</td>
                   <td>
                     <span
                       style={{
@@ -239,27 +230,32 @@ export default function Schedules() {
               </div>
 
               <div className="form-group">
-                <label>Schedule</label>
-                <select
+                <label>Cron Expression</label>
+                <input
+                  type="text"
                   value={formCron}
                   onChange={(e) => setFormCron(e.target.value)}
-                >
-                  {CRON_PRESETS.map((preset) => (
-                    <option key={preset.value} value={preset.value}>
-                      {preset.label}
-                    </option>
-                  ))}
-                </select>
+                  placeholder="0 6 * * *"
+                  required
+                  style={{ fontFamily: 'var(--font-mono)' }}
+                />
+                <small style={{ color: 'var(--text-muted)', marginTop: '0.25rem', display: 'block' }}>
+                  e.g., "0 6 * * *" for daily at 6am UTC
+                </small>
               </div>
 
               <div className="form-group">
-                <label>Sample Size</label>
+                <label>Sample Size (optional)</label>
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   value={formSampleSize}
-                  onChange={(e) => setFormSampleSize(parseInt(e.target.value) || 100)}
-                  min={1}
-                  max={500}
+                  onChange={(e) => {
+                    const value = e.target.value.replace(/\D/g, '');
+                    setFormSampleSize(value);
+                  }}
+                  placeholder="Leave blank for full benchmark"
                 />
               </div>
 
@@ -274,7 +270,7 @@ export default function Schedules() {
                 <button
                   type="submit"
                   className="btn btn-primary"
-                  disabled={formSubmitting || !formModelId}
+                  disabled={formSubmitting || !formModelId || !formCron}
                 >
                   {formSubmitting ? 'Creating...' : 'Create Schedule'}
                 </button>
@@ -307,13 +303,17 @@ export default function Schedules() {
               </div>
 
               <div className="form-group">
-                <label>Sample Size</label>
+                <label>Sample Size (optional)</label>
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   value={runSampleSize}
-                  onChange={(e) => setRunSampleSize(parseInt(e.target.value) || 100)}
-                  min={1}
-                  max={500}
+                  onChange={(e) => {
+                    const value = e.target.value.replace(/\D/g, '');
+                    setRunSampleSize(value);
+                  }}
+                  placeholder="Leave blank for full benchmark"
                 />
               </div>
 

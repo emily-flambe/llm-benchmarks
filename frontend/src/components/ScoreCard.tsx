@@ -5,43 +5,20 @@ interface ScoreCardProps {
   loading?: boolean;
 }
 
-function formatDate(dateStr: string): string {
-  // Parse as UTC to avoid timezone shift
-  const date = new Date(dateStr.includes('T') ? dateStr : dateStr + 'T12:00:00Z');
-  return date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    timeZone: 'UTC',
-  });
-}
-
-function SingleScoreCard({ run }: { run: BenchmarkRun }) {
+function ModelScoreCard({ run }: { run: BenchmarkRun }) {
   const score = run.score !== null ? (run.score * 100).toFixed(1) : '--';
   const modelName = run.model_display_name || run.model_id;
 
   return (
-    <div className="score-card-single">
-      <div className="score-card-model">{modelName}</div>
-      <div className="score-value">{score}%</div>
-      <div className="score-label">
-        {run.passed_count ?? 0} / {run.total_count ?? 0} problems passed
+    <div className="model-score-card">
+      <div className="model-score-name">{modelName}</div>
+      <div className="model-score-value">{score}%</div>
+      <div className="model-score-detail">
+        {run.passed_count ?? 0} / {run.total_count ?? 0} passed
       </div>
-      <div className="score-meta">
-        <div className="score-meta-item">
-          <div className="score-meta-value">{formatDate(run.run_date)}</div>
-          <div className="score-meta-label">Run Date</div>
-        </div>
-        <div className="score-meta-item">
-          <div className="score-meta-value">{run.sample_size ?? 'Full'}</div>
-          <div className="score-meta-label">Sample Size</div>
-        </div>
-        <div className="score-meta-item">
-          <div className="score-meta-value">
-            {run.duration_seconds ? `${Math.round(run.duration_seconds / 60)}m` : '--'}
-          </div>
-          <div className="score-meta-label">Duration</div>
-        </div>
+      <div className="model-score-meta">
+        <span>{run.sample_size ?? 'Full'} samples</span>
+        <span>{run.duration_seconds ? `${Math.round(run.duration_seconds / 60)}m` : '--'}</span>
       </div>
     </div>
   );
@@ -50,63 +27,36 @@ function SingleScoreCard({ run }: { run: BenchmarkRun }) {
 export default function ScoreCard({ runs, loading }: ScoreCardProps) {
   if (loading) {
     return (
-      <div className="card score-card">
-        <div className="loading">
-          <div className="loading-spinner" />
+      <section className="scores-section">
+        <h2 className="section-title">Latest Pass@1 Scores (Past 24 Hours)</h2>
+        <div className="scores-grid">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="model-score-card loading-card">
+              <div className="loading-spinner" />
+            </div>
+          ))}
         </div>
-      </div>
+      </section>
     );
   }
 
   if (runs.length === 0) {
     return (
-      <div className="card score-card">
-        <div className="empty-state">No benchmark runs yet</div>
-      </div>
+      <section className="scores-section">
+        <h2 className="section-title">Latest Pass@1 Scores (Past 24 Hours)</h2>
+        <div className="empty-state">No benchmark runs in the past 24 hours</div>
+      </section>
     );
   }
 
-  // Single model view
-  if (runs.length === 1) {
-    const run = runs[0];
-    const score = run.score !== null ? (run.score * 100).toFixed(1) : '--';
-
-    return (
-      <div className="card score-card">
-        <div className="card-title">Latest pass@1 Score</div>
-        <div className="score-value">{score}%</div>
-        <div className="score-label">
-          {run.passed_count ?? 0} / {run.total_count ?? 0} problems passed
-        </div>
-        <div className="score-meta">
-          <div className="score-meta-item">
-            <div className="score-meta-value">{formatDate(run.run_date)}</div>
-            <div className="score-meta-label">Run Date</div>
-          </div>
-          <div className="score-meta-item">
-            <div className="score-meta-value">{run.sample_size ?? 'Full'}</div>
-            <div className="score-meta-label">Sample Size</div>
-          </div>
-          <div className="score-meta-item">
-            <div className="score-meta-value">
-              {run.duration_seconds ? `${Math.round(run.duration_seconds / 60)}m` : '--'}
-            </div>
-            <div className="score-meta-label">Duration</div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Multi-model view
   return (
-    <div className="card score-card-multi">
-      <div className="card-title">Latest pass@1 Scores</div>
-      <div className="score-cards-row">
+    <section className="scores-section">
+      <h2 className="section-title">Latest Pass@1 Scores (Past 24 Hours)</h2>
+      <div className="scores-grid">
         {runs.map((run) => (
-          <SingleScoreCard key={run.model_id} run={run} />
+          <ModelScoreCard key={run.model_id} run={run} />
         ))}
       </div>
-    </div>
+    </section>
   );
 }

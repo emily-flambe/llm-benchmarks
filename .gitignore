@@ -38,3 +38,6 @@ npm-debug.log*
 
 # Benchmark output
 results.json
+
+# Playwright MCP screenshots
+.playwright-mcp/

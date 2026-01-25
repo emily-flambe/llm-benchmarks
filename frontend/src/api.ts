@@ -92,7 +92,7 @@ export async function getSchedules(): Promise<SchedulesResponse> {
 export interface CreateScheduleParams {
   model_id: string;
   cron_expression: string;
-  sample_size: number;
+  sample_size?: number;
 }
 
 export async function createSchedule(params: CreateScheduleParams): Promise<{ success: boolean }> {
@@ -138,7 +138,7 @@ export async function toggleSchedulePause(modelId: string, isPaused: boolean): P
 // Container runs
 export interface StartContainerRunParams {
   model_id: string;
-  sample_size: number;
+  sample_size?: number;
 }
 
 export async function startContainerRun(params: StartContainerRunParams): Promise<{ success: boolean; run_id: string }> {

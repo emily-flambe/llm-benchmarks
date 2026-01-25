@@ -117,7 +117,7 @@ function CustomTooltip({ active, payload, modelNames }: CustomTooltipProps) {
 export default function TrendChart({ data, loading }: TrendChartProps) {
   if (loading) {
     return (
-      <div className="card full-width">
+      <div className="card">
         <div className="card-header">
           <span className="card-title">Score Trend (30 Days, UTC)</span>
         </div>
@@ -132,7 +132,7 @@ export default function TrendChart({ data, loading }: TrendChartProps) {
 
   if (data.length === 0) {
     return (
-      <div className="card full-width">
+      <div className="card">
         <div className="card-header">
           <span className="card-title">Score Trend (30 Days, UTC)</span>
         </div>
@@ -180,7 +180,7 @@ export default function TrendChart({ data, loading }: TrendChartProps) {
   const showLegend = modelIds.length > 1;
 
   return (
-    <div className="card full-width">
+    <div className="card">
       <div className="card-header">
         <span className="card-title">Score Trend (30 Days, UTC)</span>
       </div>
