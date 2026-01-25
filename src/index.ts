@@ -369,22 +369,28 @@ app.get("/api/workflow-runs", async (c) => {
       "LiveCodeBench": "claude-opus-4-5-20251101", // Legacy workflow name
     };
 
-    // Query database for completed benchmark runs to get accurate model info
-    // This handles old runs from "Benchmark - Custom" where we can't get model from workflow name
-    const { results: dbRuns } = await c.env.DB.prepare(`
-      SELECT github_run_id, model_id, sample_size, m.display_name as model_display_name
-      FROM benchmark_runs r
-      JOIN models m ON r.model_id = m.id
-      WHERE github_run_id IS NOT NULL
-    `).all<{ github_run_id: string; model_id: string; sample_size: number; model_display_name: string }>();
+    // Query workflow_executions table (registered at workflow start) for metadata
+    const { results: executions } = await c.env.DB.prepare(`
+      SELECT github_run_id, model_id, sample_size FROM workflow_executions
+    `).all<{ github_run_id: string; model_id: string; sample_size: number }>();
 
-    const dbRunMap = new Map(dbRuns?.map((r) => [r.github_run_id, r]) || []);
+    // Also query completed benchmark_runs as fallback
+    const { results: dbRuns } = await c.env.DB.prepare(`
+      SELECT github_run_id, model_id, sample_size
+      FROM benchmark_runs
+      WHERE github_run_id IS NOT NULL
+    `).all<{ github_run_id: string; model_id: string; sample_size: number }>();
+
+    // Merge both sources: workflow_executions takes priority (registered at start)
+    const metadataMap = new Map<string, { model_id: string; sample_size: number }>();
+    dbRuns?.forEach((r) => metadataMap.set(r.github_run_id, r));
+    executions?.forEach((r) => metadataMap.set(r.github_run_id, r)); // Overwrites if exists
 
     // Extract relevant fields, getting model from database when available
     const runs = data.workflow_runs
       .filter((run) => run.name.startsWith("Benchmark") || run.name === "LiveCodeBench")
       .map((run) => {
-        const dbRun = dbRunMap.get(String(run.id));
+        const metadata = metadataMap.get(String(run.id));
         return {
           id: run.id,
           run_number: run.run_number,
@@ -395,9 +401,9 @@ app.get("/api/workflow-runs", async (c) => {
           updated_at: run.updated_at,
           html_url: run.html_url,
           event: run.event,
-          // Priority: 1) Database (most accurate), 2) Workflow name mapping, 3) unknown
-          model: dbRun?.model_id || workflowToModel[run.name] || 'unknown',
-          sample_size: dbRun?.sample_size?.toString() || '100',
+          // Priority: 1) workflow_executions/benchmark_runs, 2) Workflow name mapping, 3) unknown
+          model: metadata?.model_id || workflowToModel[run.name] || 'unknown',
+          sample_size: metadata?.sample_size?.toString() || '100',
         };
       })
       // Filter out runs where we can't determine the model (in-progress runs from "Benchmark - Custom")
@@ -407,6 +413,43 @@ app.get("/api/workflow-runs", async (c) => {
   } catch (error) {
     console.error("Error fetching workflow runs:", error);
     return c.json({ error: "Failed to fetch workflow runs" }, 500);
+  }
+});
+
+/**
+ * POST /api/workflow-executions - Register a workflow execution at start
+ * Called by GitHub Actions at the start of each benchmark workflow
+ * Body: { github_run_id: string, model_id: string, sample_size: number }
+ */
+app.post("/api/workflow-executions", async (c) => {
+  // Verify admin API key
+  const authHeader = c.req.header("Authorization");
+  const apiKey = authHeader?.replace("Bearer ", "");
+
+  if (apiKey !== c.env.ADMIN_API_KEY) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  try {
+    const body = await c.req.json<{
+      github_run_id: string;
+      model_id: string;
+      sample_size: number;
+    }>();
+
+    if (!body.github_run_id || !body.model_id || body.sample_size === undefined) {
+      return c.json({ error: "Missing required fields" }, 400);
+    }
+
+    await c.env.DB.prepare(`
+      INSERT OR REPLACE INTO workflow_executions (github_run_id, model_id, sample_size)
+      VALUES (?, ?, ?)
+    `).bind(body.github_run_id, body.model_id, body.sample_size).run();
+
+    return c.json({ success: true });
+  } catch (error) {
+    console.error("Error registering workflow execution:", error);
+    return c.json({ error: "Failed to register workflow execution" }, 500);
   }
 });
 

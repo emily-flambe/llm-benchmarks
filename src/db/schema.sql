@@ -43,12 +43,21 @@ CREATE TABLE IF NOT EXISTS problem_results (
   created_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Workflow execution metadata (registered when workflow starts)
+CREATE TABLE IF NOT EXISTS workflow_executions (
+  github_run_id TEXT PRIMARY KEY,
+  model_id TEXT NOT NULL,
+  sample_size INTEGER NOT NULL,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
 -- Indexes for dashboard queries
 CREATE INDEX IF NOT EXISTS idx_runs_date ON benchmark_runs(run_date DESC);
 CREATE INDEX IF NOT EXISTS idx_runs_model ON benchmark_runs(model_id, run_date DESC);
 CREATE INDEX IF NOT EXISTS idx_runs_status ON benchmark_runs(status);
 CREATE INDEX IF NOT EXISTS idx_problem_results_run ON problem_results(run_id);
 CREATE INDEX IF NOT EXISTS idx_problem_results_problem ON problem_results(problem_id);
+CREATE INDEX IF NOT EXISTS idx_workflow_executions_run ON workflow_executions(github_run_id);
 
 -- Seed default models
 INSERT OR IGNORE INTO models (id, provider, model_name, display_name, input_price_per_m, output_price_per_m, active)
