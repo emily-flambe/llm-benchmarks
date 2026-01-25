@@ -10,28 +10,25 @@ import Schedules from './components/Schedules';
 
 type TabType = 'dashboard' | 'schedules';
 
-const DEFAULT_MODEL_ID = 'claude-opus-4-5';
-
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [models, setModels] = useState<Model[]>([]);
-  const [selectedModelIds, setSelectedModelIds] = useState<string[]>([DEFAULT_MODEL_ID]);
+  const [selectedModelIds, setSelectedModelIds] = useState<string[]>([]);
   const [runs, setRuns] = useState<BenchmarkRun[]>([]);
   const [trends, setTrends] = useState<TrendDataPoint[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch models on mount
+  // Fetch models on mount and select all by default
   useEffect(() => {
     async function loadModels() {
       try {
         const data = await getModels();
         setModels(data.models);
-        // If default model isn't in the list, select the first available model
-        if (data.models.length > 0 && !data.models.some((m) => m.id === DEFAULT_MODEL_ID)) {
-          setSelectedModelIds([data.models[0].id]);
-        }
+        // Select all active models by default
+        const activeModelIds = data.models.filter((m) => m.active).map((m) => m.id);
+        setSelectedModelIds(activeModelIds);
       } catch (err) {
         console.error('Failed to load models:', err);
       } finally {
