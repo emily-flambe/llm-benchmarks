@@ -70,3 +70,18 @@ export interface CostSummaryData {
   average_per_run: number;
   run_count: number;
 }
+
+export interface WorkflowRun {
+  id: number;
+  run_number: number;
+  status: 'queued' | 'in_progress' | 'completed' | 'waiting';
+  conclusion: 'success' | 'failure' | 'cancelled' | 'skipped' | 'timed_out' | null;
+  created_at: string;
+  updated_at: string;
+  html_url: string;
+  event: string;
+}
+
+export interface WorkflowRunsResponse {
+  runs: WorkflowRun[];
+}

@@ -134,6 +134,64 @@ body {
   font-size: 0.75rem;
 }
 
+/* Tab Navigation */
+.tab-nav {
+  display: flex;
+  gap: 0.25rem;
+  margin-top: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab-btn {
+  padding: 0.75rem 1.25rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  font-family: inherit;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-bottom: -1px;
+}
+
+.tab-btn:hover {
+  color: var(--text-secondary);
+}
+
+.tab-btn.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* Workflow Runs */
+.workflow-run-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+.workflow-run-link:hover {
+  text-decoration: underline;
+}
+
+.workflow-duration {
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
+.workflow-trigger {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.workflow-refresh-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
 /* Grid layout */
 .dashboard-grid {
   display: grid;
@@ -557,6 +615,26 @@ tr.clickable {
 .badge-error {
   background-color: rgba(239, 68, 68, 0.1);
   color: var(--error);
+}
+
+.badge-warning {
+  background-color: rgba(245, 158, 11, 0.1);
+  color: var(--warning);
+}
+
+.badge-pending {
+  background-color: rgba(100, 100, 100, 0.1);
+  color: var(--text-muted);
+}
+
+.badge-running {
+  background-color: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
+}
+
+.badge-muted {
+  background-color: rgba(100, 100, 100, 0.1);
+  color: var(--text-muted);
 }
 
 /* Responsive utilities */

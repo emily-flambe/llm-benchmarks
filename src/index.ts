@@ -320,6 +320,60 @@ app.get("/api/runs/:id/problems", async (c) => {
 });
 
 /**
+ * GET /api/workflow-runs - Get recent GitHub Actions workflow runs
+ * Returns workflow run status for the benchmark workflow
+ */
+app.get("/api/workflow-runs", async (c) => {
+  try {
+    const response = await fetch(
+      "https://api.github.com/repos/emily-flambe/llm-benchmarks/actions/workflows/benchmark.yml/runs?per_page=20",
+      {
+        headers: {
+          "Accept": "application/vnd.github.v3+json",
+          "User-Agent": "llm-benchmarks-worker",
+        },
+      }
+    );
+
+    if (!response.ok) {
+      console.error("GitHub API error:", response.status);
+      return c.json({ error: "Failed to fetch workflow runs" }, 500);
+    }
+
+    const data = await response.json<{
+      workflow_runs: Array<{
+        id: number;
+        name: string;
+        status: string;
+        conclusion: string | null;
+        created_at: string;
+        updated_at: string;
+        html_url: string;
+        run_number: number;
+        event: string;
+      }>;
+    }>();
+
+    // Extract relevant fields and parse inputs from the run name/display_title
+    const runs = data.workflow_runs.map((run) => ({
+      id: run.id,
+      run_number: run.run_number,
+      status: run.status,
+      conclusion: run.conclusion,
+      created_at: run.created_at,
+      updated_at: run.updated_at,
+      html_url: run.html_url,
+      event: run.event,
+    }));
+
+    return c.json({ runs });
+  } catch (error) {
+    console.error("Error fetching workflow runs:", error);
+    return c.json({ error: "Failed to fetch workflow runs" }, 500);
+  }
+});
+
+/**
  * GET /api/trends - Score over time for charts (last 30 days)
  * Query params:
  *   - days: number (default 30, max 90)

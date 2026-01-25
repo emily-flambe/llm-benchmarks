@@ -8,10 +8,14 @@ import CostSummary from './components/CostSummary';
 import RunDetails from './components/RunDetails';
 import AdminPanel from './components/AdminPanel';
 import ModelSelector from './components/ModelSelector';
+import WorkflowRuns from './components/WorkflowRuns';
+
+type TabType = 'dashboard' | 'workflows';
 
 const DEFAULT_MODEL_ID = 'claude-opus-4-5';
 
 export default function App() {
+  const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [models, setModels] = useState<Model[]>([]);
   const [selectedModelIds, setSelectedModelIds] = useState<string[]>([DEFAULT_MODEL_ID]);
   const [runs, setRuns] = useState<BenchmarkRun[]>([]);
@@ -113,19 +117,38 @@ export default function App() {
         </div>
       </header>
 
+      <nav className="tab-nav container">
+        <button
+          className={`tab-btn ${activeTab === 'dashboard' ? 'active' : ''}`}
+          onClick={() => setActiveTab('dashboard')}
+        >
+          Dashboard
+        </button>
+        <button
+          className={`tab-btn ${activeTab === 'workflows' ? 'active' : ''}`}
+          onClick={() => setActiveTab('workflows')}
+        >
+          Workflow Runs
+        </button>
+      </nav>
+
       <main className="container" style={{ paddingBottom: '3rem' }}>
-        {error ? (
-          <div className="error-message">
-            <p>Failed to load benchmark data</p>
-            <p style={{ fontSize: '0.875rem', marginTop: '0.5rem' }}>{error}</p>
-          </div>
+        {activeTab === 'dashboard' ? (
+          error ? (
+            <div className="error-message">
+              <p>Failed to load benchmark data</p>
+              <p style={{ fontSize: '0.875rem', marginTop: '0.5rem' }}>{error}</p>
+            </div>
+          ) : (
+            <div className="dashboard-grid">
+              <ScoreCard runs={latestRunsByModel} loading={loading} />
+              <CostSummary runs={runs} loading={loading} modelNames={selectedModelNames} />
+              <TrendChart data={trends} loading={loading} selectedModelIds={selectedModelIds} />
+              <RunsTable runs={runs} loading={loading} onRowClick={setSelectedRun} showModelColumn={selectedModelIds.length > 1} />
+            </div>
+          )
         ) : (
-          <div className="dashboard-grid">
-            <ScoreCard runs={latestRunsByModel} loading={loading} />
-            <CostSummary runs={runs} loading={loading} modelNames={selectedModelNames} />
-            <TrendChart data={trends} loading={loading} selectedModelIds={selectedModelIds} />
-            <RunsTable runs={runs} loading={loading} onRowClick={setSelectedRun} showModelColumn={selectedModelIds.length > 1} />
-          </div>
+          <WorkflowRuns />
         )}
       </main>
 

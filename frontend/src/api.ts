@@ -4,6 +4,7 @@ import type {
   ProblemsResponse,
   TrendsResponse,
   ModelsResponse,
+  WorkflowRunsResponse,
 } from './types';
 
 const API_BASE = '/api';
@@ -39,6 +40,10 @@ export async function getTrends(modelIds?: string[]): Promise<TrendsResponse> {
 
 export async function getModels(): Promise<ModelsResponse> {
   return fetchJson<ModelsResponse>('/models');
+}
+
+export async function getWorkflowRuns(): Promise<WorkflowRunsResponse> {
+  return fetchJson<WorkflowRunsResponse>('/workflow-runs');
 }
 
 export interface AuthStatus {
