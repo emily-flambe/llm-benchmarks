@@ -18,13 +18,13 @@ async function fetchJson<T>(url: string): Promise<T> {
   return response.json();
 }
 
-export async function getRuns(modelIds?: string[], limit?: number): Promise<RunsResponse> {
+export async function getRuns(modelIds?: string[], hours?: number): Promise<RunsResponse> {
   const searchParams = new URLSearchParams();
   if (modelIds?.length) {
     searchParams.set('model_ids', modelIds.join(','));
   }
-  if (limit) {
-    searchParams.set('limit', String(limit));
+  if (hours) {
+    searchParams.set('hours', String(hours));
   }
   const queryString = searchParams.toString();
   return fetchJson<RunsResponse>(`/runs${queryString ? `?${queryString}` : ''}`);
@@ -47,6 +47,21 @@ export interface AuthStatus {
 
 export async function getAuthStatus(): Promise<AuthStatus> {
   return fetchJson<AuthStatus>('/auth/status');
+}
+
+// Stats endpoint - aggregated cost/run data
+export interface StatsData {
+  totalCost: number;
+  runCount: number;
+  totalProblems: number;
+}
+
+export interface StatsResponse {
+  stats: Record<string, StatsData>;
+}
+
+export async function getStats(): Promise<StatsResponse> {
+  return fetchJson<StatsResponse>('/stats');
 }
 
 // Schedule management

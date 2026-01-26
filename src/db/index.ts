@@ -106,20 +106,15 @@ export async function getModelById(
   return result || null;
 }
 
-/**
- * Get recent benchmark runs with model info
- */
 export async function getRecentRuns(
   db: D1Database,
-  limit: number = 20,
-  offset: number = 0,
-  modelIds?: string[]
+  options?: {
+    modelIds?: string[];
+    sinceHours?: number;
+  }
 ): Promise<BenchmarkRunWithModel[]> {
   let query = `
-    SELECT
-      r.*,
-      m.display_name as model_display_name,
-      m.provider as model_provider
+    SELECT r.*, m.display_name as model_display_name, m.provider as model_provider
     FROM benchmark_runs r
     JOIN models m ON r.model_id = m.id
     WHERE r.status = 'completed'
@@ -127,14 +122,18 @@ export async function getRecentRuns(
 
   const params: (string | number)[] = [];
 
-  if (modelIds && modelIds.length > 0) {
-    const placeholders = modelIds.map(() => "?").join(", ");
-    query += ` AND r.model_id IN (${placeholders})`;
-    params.push(...modelIds);
+  if (options?.sinceHours !== undefined) {
+    const cutoff = new Date(Date.now() - options.sinceHours * 60 * 60 * 1000);
+    query += " AND r.run_date >= ?";
+    params.push(cutoff.toISOString());
   }
 
-  query += " ORDER BY r.run_date DESC, r.created_at DESC LIMIT ? OFFSET ?";
-  params.push(limit, offset);
+  if (options?.modelIds && options.modelIds.length > 0) {
+    query += ` AND r.model_id IN (${options.modelIds.map(() => "?").join(", ")})`;
+    params.push(...options.modelIds);
+  }
+
+  query += " ORDER BY r.run_date DESC, r.created_at DESC";
 
   const { results } = await db
     .prepare(query)

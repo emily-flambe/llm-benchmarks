@@ -31,6 +31,7 @@ const MODEL_WORKFLOWS: Record<string, string> = {
   'claude-opus-4-5': 'benchmark-opus.yml',
   'claude-sonnet-4': 'benchmark-sonnet.yml',
   'gpt-4-1': 'benchmark-gpt.yml',
+  'gpt-5-2': 'benchmark-gpt52.yml',
   'o3': 'benchmark-o3.yml',
 };
 
@@ -326,20 +327,12 @@ app.get("/api/models", async (c) => {
 
 app.get("/api/runs", async (c) => {
   try {
-    const limit = Math.max(1, Math.min(parseInt(c.req.query("limit") || "20") || 20, 100));
-    const offset = Math.max(0, parseInt(c.req.query("offset") || "0") || 0);
     const modelIdsParam = c.req.query("model_ids");
+    const hoursParam = c.req.query("hours");
     const modelIds = modelIdsParam ? modelIdsParam.split(",").filter(Boolean) : undefined;
-
-    const [runs, total] = await Promise.all([
-      getRecentRuns(c.env.DB, limit, offset, modelIds),
-      getRunCount(c.env.DB, modelIds),
-    ]);
-
-    return c.json({
-      runs,
-      pagination: { limit, offset, total, hasMore: offset + runs.length < total },
-    });
+    const sinceHours = hoursParam ? parseInt(hoursParam, 10) : undefined;
+    const runs = await getRecentRuns(c.env.DB, { modelIds, sinceHours });
+    return c.json({ runs });
   } catch (error) {
     console.error("Error fetching runs:", error);
     return c.json({ error: "Failed to fetch runs" }, 500);
@@ -372,6 +365,62 @@ app.get("/api/runs/:id/problems", async (c) => {
   } catch (error) {
     console.error("Error fetching problem results:", error);
     return c.json({ error: "Failed to fetch problem results" }, 500);
+  }
+});
+
+// Cost/stats endpoint - returns aggregated data without limits
+app.get("/api/stats", async (c) => {
+  try {
+    // Get aggregated stats for different time periods
+    const now = new Date();
+    const periods = {
+      '24h': new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString(),
+      '7d': new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+      '30d': new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+      'mtd': new Date(now.getFullYear(), now.getMonth(), 1).toISOString(),
+      'ytd': new Date(now.getFullYear(), 0, 1).toISOString(),
+    };
+
+    const stats: Record<string, { totalCost: number; runCount: number; totalProblems: number }> = {};
+
+    // Query for each period
+    for (const [period, since] of Object.entries(periods)) {
+      const result = await c.env.DB.prepare(`
+        SELECT
+          COUNT(*) as run_count,
+          COALESCE(SUM(input_cost), 0) + COALESCE(SUM(output_cost), 0) as total_cost,
+          COALESCE(SUM(total_count), 0) as total_problems
+        FROM benchmark_runs
+        WHERE status = 'completed' AND run_date >= ?
+      `).bind(since).first<{ run_count: number; total_cost: number; total_problems: number }>();
+
+      stats[period] = {
+        totalCost: result?.total_cost ?? 0,
+        runCount: result?.run_count ?? 0,
+        totalProblems: result?.total_problems ?? 0,
+      };
+    }
+
+    // Also get all-time stats
+    const allTime = await c.env.DB.prepare(`
+      SELECT
+        COUNT(*) as run_count,
+        COALESCE(SUM(input_cost), 0) + COALESCE(SUM(output_cost), 0) as total_cost,
+        COALESCE(SUM(total_count), 0) as total_problems
+      FROM benchmark_runs
+      WHERE status = 'completed'
+    `).first<{ run_count: number; total_cost: number; total_problems: number }>();
+
+    stats['all'] = {
+      totalCost: allTime?.total_cost ?? 0,
+      runCount: allTime?.run_count ?? 0,
+      totalProblems: allTime?.total_problems ?? 0,
+    };
+
+    return c.json({ stats });
+  } catch (error) {
+    console.error("Error fetching stats:", error);
+    return c.json({ error: "Failed to fetch stats" }, 500);
   }
 });
 
