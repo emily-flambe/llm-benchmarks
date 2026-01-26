@@ -199,7 +199,7 @@ export default function RankChart({ runs, modelIds, loading }: RankChartProps) {
                 height={60}
               />
               <YAxis
-                domain={[0, 100]}
+                domain={[0, (dataMax: number) => Math.ceil((dataMax + 5) / 5) * 5]}
                 tickFormatter={(value) => `${value}%`}
                 stroke="var(--text-muted)"
                 fontSize={12}
