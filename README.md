@@ -1,23 +1,43 @@
 # LLM Benchmarks
 
-Track Claude Opus 4.5 code generation quality over time using LiveCodeBench.
+Track LLM code generation quality over time using [LiveCodeBench](https://livecodebench.github.io/).
 
-**Live**: [benchmarks.emilycogsdill.com](https://benchmarks.emilycogsdill.com) (coming soon)
+**Live**: [benchmarks.emilycogsdill.com](https://benchmarks.emilycogsdill.com)
 
-## How It Works
+## Models Tracked
+
+- Claude Opus 4.5
+- Claude Sonnet 4
+- GPT-4.1
+- GPT-5.1
+- GPT-5.2
+- o3
+
+## Architecture
 
 ```
-GitHub Actions (daily)     Cloudflare Workers
-┌─────────────────────┐    ┌─────────────────────┐
-│ Fetch problems      │    │                     │
-│ Call Claude API     │───▶│ Store results (D1)  │
-│ Execute code        │    │ Serve dashboard     │
-│ Score pass@1        │    │                     │
-└─────────────────────┘    └─────────────────────┘
+GitHub Actions               Cloudflare Workers + D1
+┌─────────────────────┐      ┌─────────────────────┐
+│ Fetch problems      │      │ Store results       │
+│ Call model API      │─────▶│ Serve dashboard     │
+│ Execute code        │      │ Trigger workflows   │
+│ Score pass@1        │      │ Manage schedules    │
+└─────────────────────┘      └─────────────────────┘
 ```
 
-- **GitHub Actions**: Runs benchmarks (can execute Python code for scoring)
-- **Cloudflare Workers**: API + dashboard (can't execute arbitrary code)
+- **GitHub Actions**: Runs benchmarks per model (executes Python for scoring)
+- **Cloudflare Workers**: REST API, React dashboard, schedule management
+- **Durable Objects**: Deduplicates scheduled runs across Worker instances
+
+## Dashboard Features
+
+- **ScoreCard**: Aggregated pass@1 scores with date range filtering
+- **RankChart**: Bar chart comparing models, sorted by score
+- **TrendChart**: Line chart showing score trends over 30 days
+- **CostSummary**: API costs (authenticated users only)
+- **Model filter pills**: Toggle model visibility across all charts
+- **Run History**: View past GitHub Actions workflow runs
+- **Schedules**: Configure cron-based benchmark schedules
 
 ## Benchmark: LiveCodeBench
 
@@ -27,25 +47,13 @@ GitHub Actions (daily)     Cloudflare Workers
 | **Metric** | pass@1 (code passes all tests on first try) |
 | **Why** | Contamination-resistant, continuously updated |
 
-## Costs
-
-| Sample Size | Cost (Opus 4.5) | Use Case |
-|-------------|-----------------|----------|
-| 10 problems | ~$0.15 | Development |
-| 100 problems | ~$1.50 | Daily runs |
-| Full (~400) | ~$5-6 | Weekly runs |
-
-## Project Status
-
-**Under Development**
-
-See [docs/plans/2026-01-24-application-spec.md](docs/plans/2026-01-24-application-spec.md) for full spec.
-
 ## Tech Stack
 
 - **Benchmark runner**: GitHub Actions (Python)
-- **API & Dashboard**: Cloudflare Workers (Hono + React)
+- **API**: Cloudflare Workers (Hono)
+- **Frontend**: React + Recharts
 - **Database**: Cloudflare D1
+- **Scheduling**: Durable Objects + cron triggers
 
 ## Related
 
