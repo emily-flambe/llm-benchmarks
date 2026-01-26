@@ -221,7 +221,7 @@ export default function TrendChart({ data, loading }: TrendChartProps) {
             {modelIds.map((modelId, index) => (
               <Line
                 key={modelId}
-                type="monotone"
+                type="linear"
                 dataKey={`${modelId}_score`}
                 name={`${modelId}_score`}
                 stroke={getModelColor(modelId, index)}
