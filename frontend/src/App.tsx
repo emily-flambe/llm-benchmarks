@@ -56,37 +56,7 @@ export default function App() {
     getAuthStatus().then(setAuthStatus).catch(() => setAuthStatus(null));
   }, [loadData]);
 
-  // Get all active model IDs
   const activeModelIds = models.filter((m) => m.active).map((m) => m.id);
-
-  // Get aggregated data for runs in the past 24 hours for each model
-  const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const last24HoursRunsByModel = activeModelIds.map((modelId) => {
-    const modelRuns = runs.filter(
-      (r) => r.model_id === modelId && new Date(r.run_date) >= oneDayAgo
-    );
-    if (modelRuns.length === 0) return null;
-
-    // Aggregate: weighted average score, sum sample size
-    const totalSamples = modelRuns.reduce((sum, r) => sum + (r.sample_size ?? 0), 0);
-    const weightedScore = totalSamples > 0
-      ? modelRuns.reduce((sum, r) => sum + (r.score ?? 0) * (r.sample_size ?? 0), 0) / totalSamples
-      : 0;
-    const totalPassed = modelRuns.reduce((sum, r) => sum + (r.passed_count ?? 0), 0);
-    const totalCount = modelRuns.reduce((sum, r) => sum + (r.total_count ?? 0), 0);
-    const totalDuration = modelRuns.reduce((sum, r) => sum + (r.duration_seconds ?? 0), 0);
-
-    // Return aggregated run (use first run as base for other fields)
-    const baseRun = modelRuns[0];
-    return {
-      ...baseRun,
-      score: weightedScore,
-      sample_size: totalSamples,
-      passed_count: totalPassed,
-      total_count: totalCount,
-      duration_seconds: totalDuration,
-    };
-  }).filter((r): r is BenchmarkRun => r !== null);
 
   return (
     <>
@@ -96,7 +66,7 @@ export default function App() {
             <div>
               <h1>LLM Benchmarks</h1>
               <p className="header-subtitle">
-                Tracking LLM code generation quality with LiveCodeBench
+                Tracking LLM code generation quality with <a href="https://livecodebench.github.io/" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-secondary)' }}>LiveCodeBench</a>
               </p>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
@@ -189,7 +159,7 @@ export default function App() {
                 </div>
               ) : (
                 <div className="dashboard-grid">
-                  <ScoreCard runs={last24HoursRunsByModel} loading={loading} />
+                  <ScoreCard runs={runs} modelIds={activeModelIds} loading={loading} />
                   <TrendChart data={trends} loading={loading} />
                   <CostSummary runs={runs} loading={loading} />
                 </div>

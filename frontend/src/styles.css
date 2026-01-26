@@ -844,6 +844,17 @@ tr.clickable {
   margin-bottom: 1.5rem;
 }
 
+.scores-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.scores-header .section-title {
+  margin-bottom: 0;
+}
+
 .section-title {
   font-size: 0.8125rem;
   font-weight: 500;
