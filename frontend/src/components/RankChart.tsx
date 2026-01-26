@@ -8,6 +8,7 @@ import {
   Tooltip,
   ResponsiveContainer,
   Cell,
+  LabelList,
 } from 'recharts';
 import type { BenchmarkRun } from '../types';
 
@@ -212,6 +213,12 @@ export default function RankChart({ runs, modelIds, loading }: RankChartProps) {
                 {chartData.map((entry, index) => (
                   <Cell key={entry.modelId} fill={getModelColor(entry.modelId, index)} />
                 ))}
+                <LabelList
+                  dataKey="score"
+                  position="top"
+                  formatter={(value: number) => `${value.toFixed(1)}%`}
+                  style={{ fill: 'var(--text-secondary)', fontSize: '0.75rem', fontWeight: 500 }}
+                />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
