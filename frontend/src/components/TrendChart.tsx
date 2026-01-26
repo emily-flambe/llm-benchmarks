@@ -12,10 +12,12 @@ import type { TrendDataPoint } from '../types';
 
 // Color palette for different models
 const MODEL_COLORS: Record<string, string> = {
-  'claude-opus-4-5': '#22c55e',    // green (primary)
+  'claude-opus-4-5': '#22c55e',    // green
   'claude-sonnet-4': '#3b82f6',    // blue
   'gpt-4-1': '#f59e0b',            // amber
-  'o3': '#ec4899',                 // pink
+  'gpt-5-1': '#a855f7',            // purple
+  'gpt-5-2': '#ec4899',            // pink
+  'o3': '#06b6d4',                 // cyan
 };
 
 const DEFAULT_COLORS = ['#22c55e', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4'];

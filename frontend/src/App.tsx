@@ -3,6 +3,7 @@ import { Routes, Route, NavLink, useNavigate, Navigate } from 'react-router-dom'
 import { getRuns, getTrends, getModels, getAuthStatus, type AuthStatus } from './api';
 import type { BenchmarkRun, TrendDataPoint, Model } from './types';
 import ScoreCard from './components/ScoreCard';
+import RankChart from './components/RankChart';
 import TrendChart from './components/TrendChart';
 import CostSummary from './components/CostSummary';
 import Schedules from './components/Schedules';
@@ -160,6 +161,7 @@ export default function App() {
               ) : (
                 <div className="dashboard-grid">
                   <ScoreCard runs={runs} modelIds={activeModelIds} loading={loading} />
+                  <RankChart runs={runs} modelIds={activeModelIds} loading={loading} />
                   <TrendChart data={trends} loading={loading} />
                   {authStatus?.authenticated && <CostSummary runs={runs} loading={loading} />}
                 </div>

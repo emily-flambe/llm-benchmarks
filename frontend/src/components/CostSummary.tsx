@@ -76,7 +76,7 @@ function calculateCostSummary(runs: BenchmarkRun[]): {
 }
 
 export default function CostSummary({ runs, loading }: CostSummaryProps) {
-  const [dateRange, setDateRange] = useState<DateRange>('24h');
+  const [dateRange, setDateRange] = useState<DateRange>('all');
 
   if (loading) {
     return (
