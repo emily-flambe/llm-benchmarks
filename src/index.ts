@@ -31,6 +31,7 @@ const MODEL_WORKFLOWS: Record<string, string> = {
   'claude-opus-4-5': 'benchmark-opus.yml',
   'claude-sonnet-4': 'benchmark-sonnet.yml',
   'gpt-4-1': 'benchmark-gpt.yml',
+  'gpt-5-1': 'benchmark-gpt51.yml',
   'gpt-5-2': 'benchmark-gpt52.yml',
   'o3': 'benchmark-o3.yml',
 };
