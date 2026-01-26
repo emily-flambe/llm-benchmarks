@@ -407,6 +407,16 @@ def main():
         status = "PASS" if result.passed else f"FAIL ({result.error_type})"
         print(f"  Result: {status} ({result.latency_ms}ms)")
 
+    # Check for API errors - abort if any occurred (don't record invalid data)
+    api_errors = [r for r in results if r.error_type == "api_error"]
+    if api_errors:
+        print(f"\n{'='*50}", file=sys.stderr)
+        print(f"ABORTING: {len(api_errors)} API errors occurred", file=sys.stderr)
+        print("This usually means insufficient API credits or auth issues.", file=sys.stderr)
+        print("No results will be recorded.", file=sys.stderr)
+        print(f"{'='*50}", file=sys.stderr)
+        sys.exit(1)
+
     # Calculate final stats
     duration_seconds = int(time.time() - start_time)
     passed_count = sum(1 for r in results if r.passed)
