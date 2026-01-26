@@ -100,7 +100,7 @@ function ModelScoreCard({ run }: { run: BenchmarkRun }) {
 }
 
 export default function ScoreCard({ runs, modelIds, loading }: ScoreCardProps) {
-  const [dateRange, setDateRange] = useState<DateRange>('24h');
+  const [dateRange, setDateRange] = useState<DateRange>('all');
 
   const rangeLabel = DATE_RANGE_OPTIONS.find((o) => o.value === dateRange)?.label || '';
 
