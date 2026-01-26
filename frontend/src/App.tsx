@@ -161,7 +161,7 @@ export default function App() {
                 <div className="dashboard-grid">
                   <ScoreCard runs={runs} modelIds={activeModelIds} loading={loading} />
                   <TrendChart data={trends} loading={loading} />
-                  <CostSummary runs={runs} loading={loading} />
+                  {authStatus?.authenticated && <CostSummary runs={runs} loading={loading} />}
                 </div>
               )
             }
