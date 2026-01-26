@@ -23,6 +23,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
+  const [selectedModelIds, setSelectedModelIds] = useState<Set<string>>(new Set());
 
   const showToast = useCallback((message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -44,6 +45,9 @@ export default function App() {
       setModels(modelsData.models);
       setRuns(runsData.runs);
       setTrends(trendsData.trends);
+      // Default to all active models selected
+      const activeIds = modelsData.models.filter((m: Model) => m.active).map((m: Model) => m.id);
+      setSelectedModelIds(new Set(activeIds));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data');
     } finally {
@@ -57,7 +61,25 @@ export default function App() {
     getAuthStatus().then(setAuthStatus).catch(() => setAuthStatus(null));
   }, [loadData]);
 
-  const activeModelIds = models.filter((m) => m.active).map((m) => m.id);
+  const activeModels = models.filter((m) => m.active);
+  const activeModelIds = activeModels.map((m) => m.id);
+
+  const toggleModel = (modelId: string) => {
+    setSelectedModelIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(modelId)) {
+        next.delete(modelId);
+      } else {
+        next.add(modelId);
+      }
+      return next;
+    });
+  };
+
+  // Filter data based on selected models
+  const filteredRuns = runs.filter((r) => selectedModelIds.has(r.model_id));
+  const filteredTrends = trends.filter((t) => selectedModelIds.has(t.model_id));
+  const filteredModelIds = activeModelIds.filter((id) => selectedModelIds.has(id));
 
   return (
     <>
@@ -159,12 +181,25 @@ export default function App() {
                   <p style={{ fontSize: '0.875rem', marginTop: '0.5rem' }}>{error}</p>
                 </div>
               ) : (
-                <div className="dashboard-grid">
-                  <ScoreCard runs={runs} modelIds={activeModelIds} loading={loading} />
-                  <RankChart runs={runs} modelIds={activeModelIds} loading={loading} />
-                  <TrendChart data={trends} loading={loading} />
-                  {authStatus?.authenticated && <CostSummary runs={runs} loading={loading} />}
-                </div>
+                <>
+                  <div className="filter-pills">
+                    {activeModels.map((model) => (
+                      <button
+                        key={model.id}
+                        className={`filter-pill ${selectedModelIds.has(model.id) ? 'active' : ''}`}
+                        onClick={() => toggleModel(model.id)}
+                      >
+                        {model.display_name}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="dashboard-grid">
+                    <ScoreCard runs={filteredRuns} modelIds={filteredModelIds} loading={loading} />
+                    <RankChart runs={filteredRuns} modelIds={filteredModelIds} loading={loading} />
+                    <TrendChart data={filteredTrends} loading={loading} />
+                    {authStatus?.authenticated && <CostSummary runs={filteredRuns} loading={loading} />}
+                  </div>
+                </>
               )
             }
           />
