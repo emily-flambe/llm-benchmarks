@@ -1,0 +1,24 @@
+name: Echo Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        description: 'Message to echo'
+        default: 'Hello from Dagster!'
+        type: string
+
+jobs:
+  echo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+
+    steps:
+      - name: Echo message
+        env:
+          MESSAGE: ${{ inputs.message }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          echo "Triggered at: $(date -u)"
+          echo "Message: $MESSAGE"
+          echo "Run ID: $RUN_ID"
