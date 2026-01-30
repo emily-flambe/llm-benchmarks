@@ -184,72 +184,93 @@ async function triggerGitHubWorkflow(
     return { success: false, error: `No workflow configured for model: ${modelId}` };
   }
 
-  // Get the latest run ID before triggering (to find the new one after)
-  const beforeResponse = await fetch(
-    `https://api.github.com/repos/emily-flambe/llm-benchmarks/actions/workflows/${workflowFile}/runs?per_page=1`,
-    {
-      headers: {
-        "Authorization": `Bearer ${githubToken}`,
-        "Accept": "application/vnd.github.v3+json",
-        "User-Agent": "llm-benchmarks-worker",
-      },
+  try {
+    // Get the latest run ID before triggering (to find the new one after)
+    let latestRunIdBefore: number | undefined;
+    try {
+      const beforeResponse = await fetch(
+        `https://api.github.com/repos/emily-flambe/llm-benchmarks/actions/workflows/${workflowFile}/runs?per_page=1`,
+        {
+          headers: {
+            "Authorization": `Bearer ${githubToken}`,
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "llm-benchmarks-worker",
+          },
+        }
+      );
+      if (beforeResponse.ok) {
+        const beforeData = await beforeResponse.json<{ workflow_runs: Array<{ id: number }> }>();
+        latestRunIdBefore = beforeData.workflow_runs?.[0]?.id;
+      }
+    } catch (e) {
+      console.warn(`Failed to get latest run ID before trigger for ${modelId}:`, e);
+      // Continue anyway - we'll just not have the runId
     }
-  );
-  const beforeData = await beforeResponse.json<{ workflow_runs: Array<{ id: number }> }>();
-  const latestRunIdBefore = beforeData.workflow_runs?.[0]?.id;
 
-  // Trigger the workflow
-  const response = await fetch(
-    `https://api.github.com/repos/emily-flambe/llm-benchmarks/actions/workflows/${workflowFile}/dispatches`,
-    {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${githubToken}`,
-        "Accept": "application/vnd.github.v3+json",
-        "User-Agent": "llm-benchmarks-worker",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        ref: "main",
-        inputs: {
-          sample_size: String(sampleSize),
-          trigger_source: triggerSource,
-        },
-      }),
-    }
-  );
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error(`GitHub API error for ${workflowFile}:`, response.status, errorText);
-    return { success: false, error: `GitHub API returned ${response.status}` };
-  }
-
-  // Poll briefly to find the new run ID
-  let runId: string | undefined;
-  for (let attempt = 0; attempt < 5; attempt++) {
-    await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
-
-    const afterResponse = await fetch(
-      `https://api.github.com/repos/emily-flambe/llm-benchmarks/actions/workflows/${workflowFile}/runs?per_page=1`,
+    // Trigger the workflow
+    const response = await fetch(
+      `https://api.github.com/repos/emily-flambe/llm-benchmarks/actions/workflows/${workflowFile}/dispatches`,
       {
+        method: "POST",
         headers: {
           "Authorization": `Bearer ${githubToken}`,
           "Accept": "application/vnd.github.v3+json",
           "User-Agent": "llm-benchmarks-worker",
+          "Content-Type": "application/json",
         },
+        body: JSON.stringify({
+          ref: "main",
+          inputs: {
+            sample_size: String(sampleSize),
+            trigger_source: triggerSource,
+          },
+        }),
       }
     );
-    const afterData = await afterResponse.json<{ workflow_runs: Array<{ id: number }> }>();
-    const latestRunIdAfter = afterData.workflow_runs?.[0]?.id;
 
-    if (latestRunIdAfter && latestRunIdAfter !== latestRunIdBefore) {
-      runId = String(latestRunIdAfter);
-      break;
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`GitHub API error for ${workflowFile}:`, response.status, errorText);
+      return { success: false, error: `GitHub API returned ${response.status}` };
     }
-  }
 
-  return { success: true, runId };
+    // Poll briefly to find the new run ID
+    let runId: string | undefined;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+
+      try {
+        const afterResponse = await fetch(
+          `https://api.github.com/repos/emily-flambe/llm-benchmarks/actions/workflows/${workflowFile}/runs?per_page=1`,
+          {
+            headers: {
+              "Authorization": `Bearer ${githubToken}`,
+              "Accept": "application/vnd.github.v3+json",
+              "User-Agent": "llm-benchmarks-worker",
+            },
+          }
+        );
+        if (afterResponse.ok) {
+          const afterData = await afterResponse.json<{ workflow_runs: Array<{ id: number }> }>();
+          const latestRunIdAfter = afterData.workflow_runs?.[0]?.id;
+
+          if (latestRunIdAfter && latestRunIdAfter !== latestRunIdBefore) {
+            runId = String(latestRunIdAfter);
+            break;
+          }
+        }
+      } catch (e) {
+        console.warn(`Failed to poll for run ID (attempt ${attempt + 1}) for ${modelId}:`, e);
+        // Continue polling
+      }
+    }
+
+    return { success: true, runId };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Unexpected error triggering workflow for ${modelId}:`, error);
+    return { success: false, error: message };
+  }
 }
 
 // ============================================================================
@@ -528,8 +549,14 @@ app.post("/api/workflow-executions", async (c) => {
 
     return c.json({ success: true });
   } catch (error) {
-    console.error("Error registering workflow execution:", error);
-    return c.json({ error: "Failed to register workflow execution" }, 500);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    console.error("Error registering workflow execution:", {
+      message: errorMessage,
+      stack: errorStack,
+      error,
+    });
+    return c.json({ error: "Failed to register workflow execution", details: errorMessage }, 500);
   }
 });
 

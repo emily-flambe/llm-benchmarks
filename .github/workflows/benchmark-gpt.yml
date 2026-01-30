@@ -29,6 +29,8 @@ jobs:
         run: pip install -r scripts/requirements.txt
 
       - name: Register workflow execution
+        # Non-blocking: cron handler may have already registered this run
+        continue-on-error: true
         env:
           ADMIN_API_KEY: ${{ secrets.ADMIN_API_KEY }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}

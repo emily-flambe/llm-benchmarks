@@ -16,24 +16,28 @@ export class BenchmarkSchedulerDO extends DurableObject<Env> {
   /**
    * Attempt to claim a benchmark execution for a specific minute.
    * Returns true if this caller successfully claimed, false if already claimed.
+   * Uses transactional storage to prevent race conditions.
    */
   async claimExecution(modelId: string, scheduledMinute: string): Promise<boolean> {
     const key = `${modelId}:${scheduledMinute}`;
 
-    // Check if already claimed
-    const existing = await this.ctx.storage.get<ClaimRecord>(key);
-    if (existing) {
-      return false;
-    }
+    // Use transaction to atomically check and set
+    return await this.ctx.storage.transaction(async (txn) => {
+      // Check if already claimed
+      const existing = await txn.get<ClaimRecord>(key);
+      if (existing) {
+        return false;
+      }
 
-    // Claim it
-    const claim: ClaimRecord = {
-      claimedAt: new Date().toISOString(),
-      workerId: crypto.randomUUID(),
-    };
-    await this.ctx.storage.put(key, claim);
+      // Claim it
+      const claim: ClaimRecord = {
+        claimedAt: new Date().toISOString(),
+        workerId: crypto.randomUUID(),
+      };
+      await txn.put(key, claim);
 
-    return true;
+      return true;
+    });
   }
 
   /**
