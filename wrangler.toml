@@ -25,9 +25,9 @@ database_id = "1387e6df-d3a9-4b13-80d8-c01c846232a3"
 [observability]
 enabled = true
 
-# Cron trigger for scheduled benchmarks (every minute checks schedules)
-[triggers]
-crons = ["* * * * *"]
+# Cron trigger disabled - scheduling now handled by Dagster
+# [triggers]
+# crons = ["* * * * *"]
 
 # Durable Object for schedule deduplication
 [[durable_objects.bindings]]
