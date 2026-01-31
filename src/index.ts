@@ -34,6 +34,7 @@ const MODEL_WORKFLOWS: Record<string, string> = {
   'gpt-5-1': 'benchmark-gpt51.yml',
   'gpt-5-2': 'benchmark-gpt52.yml',
   'o3': 'benchmark-o3.yml',
+  'echo-test': 'echo-test.yml',
 };
 
 // Environment bindings

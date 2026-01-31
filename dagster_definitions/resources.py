@@ -41,3 +41,33 @@ class GitHubActionsResource(ConfigurableResource):
                 return {"status": "triggered", "workflow_id": workflow_id, "inputs": inputs}
         except urllib.error.HTTPError as e:
             raise RuntimeError(f"GitHub API error: {e.code} - {e.read().decode()}")
+
+
+class BenchmarkApiResource(ConfigurableResource):
+    """Resource for fetching schedules from the benchmark API."""
+
+    api_url: str = "https://benchmarks.emilycogsdill.com"
+
+    def get_schedules(self) -> list[dict]:
+        """Fetch all schedules from the API."""
+        url = f"{self.api_url}/api/schedules"
+        request = urllib.request.Request(url, headers={"Accept": "application/json"})
+
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                data = json.loads(response.read().decode())
+                return data.get("schedules", [])
+        except urllib.error.HTTPError as e:
+            raise RuntimeError(f"API error: {e.code} - {e.read().decode()}")
+
+
+# Model ID to workflow file mapping (must match worker's MODEL_WORKFLOWS)
+MODEL_WORKFLOWS = {
+    "claude-opus-4-5": "benchmark-opus.yml",
+    "claude-sonnet-4": "benchmark-sonnet.yml",
+    "gpt-4-1": "benchmark-gpt.yml",
+    "gpt-5-1": "benchmark-gpt51.yml",
+    "gpt-5-2": "benchmark-gpt52.yml",
+    "o3": "benchmark-o3.yml",
+    "echo-test": "echo-test.yml",
+}
