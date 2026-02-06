@@ -28,6 +28,7 @@ export { BenchmarkSchedulerDO } from "./services/scheduler-do";
 
 // Model ID to GitHub Actions workflow mapping
 const MODEL_WORKFLOWS: Record<string, string> = {
+  'claude-opus-4-6': 'benchmark-opus46.yml',
   'claude-opus-4-5': 'benchmark-opus.yml',
   'claude-sonnet-4': 'benchmark-sonnet.yml',
   'gpt-4-1': 'benchmark-gpt.yml',
@@ -480,6 +481,7 @@ app.get("/api/workflow-runs", async (c) => {
     }>();
 
     const workflowToModel: Record<string, string> = {
+      "Benchmark - Claude Opus 4.6": "claude-opus-4-6",
       "Benchmark - Claude Opus 4.5": "claude-opus-4-5",
       "Benchmark - Claude Sonnet 4": "claude-sonnet-4",
       "Benchmark - GPT-4.1": "gpt-4-1",

@@ -75,6 +75,7 @@ CREATE INDEX IF NOT EXISTS idx_model_schedules_model ON model_schedules(model_id
 -- Seed default models
 INSERT OR IGNORE INTO models (id, provider, model_name, display_name, input_price_per_m, output_price_per_m, active)
 VALUES
+  ('claude-opus-4-6', 'anthropic', 'claude-opus-4-6-20260205', 'Claude Opus 4.6', 15.00, 75.00, 1),
   ('claude-opus-4-5', 'anthropic', 'claude-opus-4-5-20251101', 'Claude Opus 4.5', 15.00, 75.00, 1),
   ('claude-sonnet-4', 'anthropic', 'claude-sonnet-4-20250514', 'Claude Sonnet 4', 3.00, 15.00, 1),
   ('gpt-4-1', 'openai', 'gpt-4.1', 'GPT-4.1', 2.00, 8.00, 1),

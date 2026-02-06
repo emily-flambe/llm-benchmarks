@@ -63,6 +63,7 @@ class BenchmarkApiResource(ConfigurableResource):
 
 # Model ID to workflow file mapping (must match worker's MODEL_WORKFLOWS)
 MODEL_WORKFLOWS = {
+    "claude-opus-4-6": "benchmark-opus46.yml",
     "claude-opus-4-5": "benchmark-opus.yml",
     "claude-sonnet-4": "benchmark-sonnet.yml",
     "gpt-4-1": "benchmark-gpt.yml",

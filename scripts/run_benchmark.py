@@ -25,6 +25,7 @@ from datasets import load_dataset
 
 # Pricing per million tokens
 MODEL_PRICING = {
+    "claude-opus-4-6-20260205": {"input": 5.00, "output": 25.00},
     "claude-opus-4-5-20251101": {"input": 5.00, "output": 25.00},
     "claude-sonnet-4-20250514": {"input": 3.00, "output": 15.00},
     "gpt-4.1": {"input": 2.00, "output": 8.00},
@@ -35,6 +36,7 @@ MODEL_PRICING = {
 
 # Map API model names to database IDs
 MODEL_ID_MAP = {
+    "claude-opus-4-6-20260205": "claude-opus-4-6",
     "claude-opus-4-5-20251101": "claude-opus-4-5",
     "claude-sonnet-4-20250514": "claude-sonnet-4",
     "gpt-4.1": "gpt-4-1",
