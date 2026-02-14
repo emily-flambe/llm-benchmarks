@@ -81,4 +81,6 @@ VALUES
   ('gpt-4-1', 'openai', 'gpt-4.1', 'GPT-4.1', 2.00, 8.00, 1),
   ('o3', 'openai', 'o3', 'o3', 2.00, 8.00, 1),
   ('gemini-2-5-pro', 'google', 'gemini-2.5-pro', 'Gemini 2.5 Pro', 4.00, 20.00, 0),
+  ('gemini-3-pro', 'google', 'gemini-3-pro-preview', 'Gemini 3 Pro', 2.00, 12.00, 1),
+  ('gemini-3-flash', 'google', 'gemini-3-flash-preview', 'Gemini 3 Flash', 0.50, 3.00, 1),
   ('echo-test', 'dagster', 'echo-test', 'Echo Test (POC)', 0.00, 0.00, 1);

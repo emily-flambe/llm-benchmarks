@@ -35,6 +35,8 @@ const MODEL_WORKFLOWS: Record<string, string> = {
   'gpt-5-1': 'benchmark-gpt51.yml',
   'gpt-5-2': 'benchmark-gpt52.yml',
   'o3': 'benchmark-o3.yml',
+  'gemini-3-pro': 'benchmark-gemini3pro.yml',
+  'gemini-3-flash': 'benchmark-gemini3flash.yml',
   'echo-test': 'echo-test.yml',
 };
 
@@ -486,6 +488,8 @@ app.get("/api/workflow-runs", async (c) => {
       "Benchmark - Claude Sonnet 4": "claude-sonnet-4",
       "Benchmark - GPT-4.1": "gpt-4-1",
       "Benchmark - o3": "o3",
+      "Benchmark - Gemini 3 Pro": "gemini-3-pro",
+      "Benchmark - Gemini 3 Flash": "gemini-3-flash",
     };
 
     const { results: executions } = await c.env.DB.prepare(`

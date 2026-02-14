@@ -20,7 +20,6 @@ import pytest
 from run_benchmark import (
     BenchmarkResults,
     CODE_EXECUTION_TIMEOUT,
-    FIXED_RANDOM_SEED,
     MODEL_PRICING,
     ProblemResult,
     calculate_cost,
@@ -842,10 +841,6 @@ class TestAPIWrappers:
 class TestEdgeCases:
     """Miscellaneous edge case tests."""
 
-    def test_fixed_random_seed_value(self):
-        """Fixed random seed should be 42."""
-        assert FIXED_RANDOM_SEED == 42
-
     def test_code_execution_timeout_value(self):
         """Timeout should be 30 seconds."""
         assert CODE_EXECUTION_TIMEOUT == 30
@@ -999,8 +994,8 @@ class TestSampleFlagEdgeCases:
         assert len(problems) == 10
 
     @patch("run_benchmark.load_dataset")
-    def test_sample_reproducible_with_seed(self, mock_load):
-        """Sampling should be reproducible with fixed seed."""
+    def test_sample_uses_random_seed(self, mock_load):
+        """Each sample should use a different random seed for variety."""
         from run_benchmark import load_problems
 
         mock_dataset = [{"question_id": f"q{i}"} for i in range(100)]
@@ -1009,8 +1004,10 @@ class TestSampleFlagEdgeCases:
         problems1 = load_problems(10)
         problems2 = load_problems(10)
 
-        # Same seed should produce same sample
-        assert [p["question_id"] for p in problems1] == [p["question_id"] for p in problems2]
+        # Different seeds should (almost certainly) produce different samples
+        ids1 = [p["question_id"] for p in problems1]
+        ids2 = [p["question_id"] for p in problems2]
+        assert ids1 != ids2
 
     @patch("run_benchmark.load_dataset")
     def test_sample_negative_value(self, mock_load):

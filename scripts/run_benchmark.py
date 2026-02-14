@@ -32,6 +32,8 @@ MODEL_PRICING = {
     "gpt-5.1": {"input": 3.00, "output": 12.00},
     "gpt-5.2": {"input": 4.00, "output": 16.00},
     "o3": {"input": 2.00, "output": 8.00},
+    "gemini-3-pro-preview": {"input": 2.00, "output": 12.00},
+    "gemini-3-flash-preview": {"input": 0.50, "output": 3.00},
 }
 
 # Map API model names to database IDs
@@ -43,9 +45,12 @@ MODEL_ID_MAP = {
     "gpt-5.1": "gpt-5-1",
     "gpt-5.2": "gpt-5-2",
     "o3": "o3",
+    "gemini-3-pro-preview": "gemini-3-pro",
+    "gemini-3-flash-preview": "gemini-3-flash",
 }
 
-FIXED_RANDOM_SEED = 42
+GOOGLE_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+
 CODE_EXECUTION_TIMEOUT = 30  # seconds
 
 
@@ -162,6 +167,19 @@ def call_openai(client: openai.OpenAI, model: str, prompt: str) -> tuple[str, in
     return response_text, input_tokens, output_tokens
 
 
+def call_google(client: openai.OpenAI, model: str, prompt: str) -> tuple[str, int, int]:
+    """Call Google Gemini API via OpenAI-compatible endpoint."""
+    response = client.chat.completions.create(
+        model=model,
+        max_tokens=4096,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    response_text = response.choices[0].message.content
+    input_tokens = response.usage.prompt_tokens
+    output_tokens = response.usage.completion_tokens
+    return response_text, input_tokens, output_tokens
+
+
 def execute_code_with_input(code: str, test_input: str) -> tuple[bool, Optional[str], str]:
     """
     Execute code in a subprocess with the given input.
@@ -223,6 +241,8 @@ def evaluate_problem(
     anthropic_client: Optional[anthropic.Anthropic],
     openai_client: Optional[openai.OpenAI],
     model: str,
+    *,
+    google_client: Optional[openai.OpenAI] = None,
 ) -> tuple[ProblemResult, int, int]:
     """
     Evaluate a single problem.
@@ -235,7 +255,11 @@ def evaluate_problem(
         prompt = format_prompt(problem)
 
         # Call the appropriate API
-        if model.startswith("gpt") or model.startswith("o3"):
+        if model.startswith("gemini"):
+            if google_client is None:
+                raise ValueError("Google client not initialized but Gemini model requested")
+            response_text, input_tokens, output_tokens = call_google(google_client, model, prompt)
+        elif model.startswith("gpt") or model.startswith("o3"):
             if openai_client is None:
                 raise ValueError("OpenAI client not initialized but OpenAI model requested")
             response_text, input_tokens, output_tokens = call_openai(openai_client, model, prompt)
@@ -328,9 +352,10 @@ def load_problems(sample_size: int) -> list[dict]:
     print(f"Loaded {len(problems)} problems")
 
     if sample_size > 0 and sample_size < len(problems):
-        random.seed(FIXED_RANDOM_SEED)
+        seed = random.randint(0, 2**32 - 1)
+        random.seed(seed)
         problems = random.sample(problems, sample_size)
-        print(f"Sampled {sample_size} problems (seed={FIXED_RANDOM_SEED})")
+        print(f"Sampled {sample_size} problems (seed={seed})")
 
     return problems
 
@@ -366,8 +391,15 @@ def main():
     # Initialize API clients
     anthropic_client = None
     openai_client = None
+    google_client = None
 
-    if args.model.startswith("gpt") or args.model.startswith("o3"):
+    if args.model.startswith("gemini"):
+        api_key = os.environ.get("GOOGLE_API_KEY")
+        if not api_key:
+            print("Error: GOOGLE_API_KEY environment variable not set", file=sys.stderr)
+            sys.exit(1)
+        google_client = openai.OpenAI(api_key=api_key, base_url=GOOGLE_API_BASE_URL)
+    elif args.model.startswith("gpt") or args.model.startswith("o3"):
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
             print("Error: OPENAI_API_KEY environment variable not set", file=sys.stderr)
@@ -401,6 +433,7 @@ def main():
             anthropic_client,
             openai_client,
             args.model,
+            google_client=google_client,
         )
         results.append(result)
         total_input_tokens += input_tokens
