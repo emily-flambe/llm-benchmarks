@@ -51,7 +51,7 @@ jobs:
       - name: Run benchmark
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          BENCHMARK_MODEL: claude-opus-4-6-20260205
+          BENCHMARK_MODEL: claude-opus-4-6
           BENCHMARK_SAMPLE_SIZE: ${{ inputs.sample_size || '100' }}
         run: |
           python scripts/run_benchmark.py \
