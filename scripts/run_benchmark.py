@@ -342,11 +342,22 @@ def evaluate_problem(
 def load_problems(sample_size: int) -> list[dict]:
     """Load LiveCodeBench problems from HuggingFace."""
     print("Loading LiveCodeBench dataset from HuggingFace...")
-    dataset = load_dataset(
-        "livecodebench/code_generation_lite",
-        split="test",
-        trust_remote_code=True,
-    )
+    dataset = None
+    for attempt in range(3):
+        try:
+            dataset = load_dataset(
+                "livecodebench/code_generation_lite",
+                split="test",
+                trust_remote_code=True,
+            )
+            break
+        except Exception as e:
+            if attempt < 2:
+                wait = 5 * (attempt + 1)
+                print(f"  Dataset load failed ({e}), retrying in {wait}s...", file=sys.stderr)
+                time.sleep(wait)
+            else:
+                raise
 
     problems = list(dataset)
     print(f"Loaded {len(problems)} problems")
