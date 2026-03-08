@@ -20,6 +20,7 @@ from typing import Optional
 
 import anthropic
 import openai
+from google import genai as google_genai
 from datasets import load_dataset
 
 
@@ -27,26 +28,32 @@ from datasets import load_dataset
 MODEL_PRICING = {
     "claude-opus-4-6": {"input": 5.00, "output": 25.00},
     "claude-opus-4-5-20251101": {"input": 5.00, "output": 25.00},
+    "claude-sonnet-4-6": {"input": 3.00, "output": 15.00},
     "claude-sonnet-4-20250514": {"input": 3.00, "output": 15.00},
+    "gpt-5.4": {"input": 2.50, "output": 15.00},
     "gpt-4.1": {"input": 2.00, "output": 8.00},
     "gpt-5.1": {"input": 3.00, "output": 12.00},
     "gpt-5.2": {"input": 4.00, "output": 16.00},
     "o3": {"input": 2.00, "output": 8.00},
     "gemini-3-pro-preview": {"input": 2.00, "output": 12.00},
     "gemini-3-flash-preview": {"input": 0.50, "output": 3.00},
+    "gemini-3.1-pro-preview": {"input": 2.00, "output": 12.00},
 }
 
 # Map API model names to database IDs
 MODEL_ID_MAP = {
     "claude-opus-4-6": "claude-opus-4-6",
     "claude-opus-4-5-20251101": "claude-opus-4-5",
+    "claude-sonnet-4-6": "claude-sonnet-4-6",
     "claude-sonnet-4-20250514": "claude-sonnet-4",
+    "gpt-5.4": "gpt-5-4",
     "gpt-4.1": "gpt-4-1",
     "gpt-5.1": "gpt-5-1",
     "gpt-5.2": "gpt-5-2",
     "o3": "o3",
     "gemini-3-pro-preview": "gemini-3-pro",
     "gemini-3-flash-preview": "gemini-3-flash",
+    "gemini-3.1-pro-preview": "gemini-3-1-pro",
 }
 
 GOOGLE_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
@@ -139,6 +146,18 @@ def call_anthropic(client: anthropic.Anthropic, model: str, prompt: str) -> tupl
     response_text = message.content[0].text
     input_tokens = message.usage.input_tokens
     output_tokens = message.usage.output_tokens
+    return response_text, input_tokens, output_tokens
+
+
+def call_gemini(client: google_genai.Client, model: str, prompt: str) -> tuple[str, int, int]:
+    """Call Google Gemini API and return (response_text, input_tokens, output_tokens)."""
+    response = client.models.generate_content(
+        model=model,
+        contents=prompt,
+    )
+    response_text = response.text
+    input_tokens = response.usage_metadata.prompt_token_count
+    output_tokens = response.usage_metadata.candidates_token_count
     return response_text, input_tokens, output_tokens
 
 
@@ -240,6 +259,7 @@ def evaluate_problem(
     problem: dict,
     anthropic_client: Optional[anthropic.Anthropic],
     openai_client: Optional[openai.OpenAI],
+    gemini_client: Optional[google_genai.Client],
     model: str,
     *,
     google_client: Optional[openai.OpenAI] = None,
@@ -263,6 +283,10 @@ def evaluate_problem(
             if openai_client is None:
                 raise ValueError("OpenAI client not initialized but OpenAI model requested")
             response_text, input_tokens, output_tokens = call_openai(openai_client, model, prompt)
+        elif model.startswith("gemini"):
+            if gemini_client is None:
+                raise ValueError("Gemini client not initialized but Gemini model requested")
+            response_text, input_tokens, output_tokens = call_gemini(gemini_client, model, prompt)
         else:
             if anthropic_client is None:
                 raise ValueError("Anthropic client not initialized")
@@ -403,6 +427,7 @@ def main():
     anthropic_client = None
     openai_client = None
     google_client = None
+    gemini_client = None
 
     if args.model.startswith("gemini"):
         api_key = os.environ.get("GOOGLE_API_KEY")
@@ -416,6 +441,12 @@ def main():
             print("Error: OPENAI_API_KEY environment variable not set", file=sys.stderr)
             sys.exit(1)
         openai_client = openai.OpenAI(api_key=api_key)
+    elif args.model.startswith("gemini"):
+        api_key = os.environ.get("GOOGLE_API_KEY")
+        if not api_key:
+            print("Error: GOOGLE_API_KEY environment variable not set", file=sys.stderr)
+            sys.exit(1)
+        gemini_client = google_genai.Client(api_key=api_key)
     else:
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
@@ -443,6 +474,7 @@ def main():
             problem,
             anthropic_client,
             openai_client,
+            gemini_client,
             args.model,
             google_client=google_client,
         )

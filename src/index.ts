@@ -30,7 +30,10 @@ export { BenchmarkSchedulerDO } from "./services/scheduler-do";
 const MODEL_WORKFLOWS: Record<string, string> = {
   'claude-opus-4-6': 'benchmark-opus46.yml',
   'claude-opus-4-5': 'benchmark-opus.yml',
+  'claude-sonnet-4-6': 'benchmark-sonnet46.yml',
   'claude-sonnet-4': 'benchmark-sonnet.yml',
+  'gpt-5-4': 'benchmark-gpt54.yml',
+  'gemini-3-1-pro': 'benchmark-gemini31pro.yml',
   'gpt-4-1': 'benchmark-gpt.yml',
   'gpt-5-1': 'benchmark-gpt51.yml',
   'gpt-5-2': 'benchmark-gpt52.yml',
@@ -485,7 +488,10 @@ app.get("/api/workflow-runs", async (c) => {
     const workflowToModel: Record<string, string> = {
       "Benchmark - Claude Opus 4.6": "claude-opus-4-6",
       "Benchmark - Claude Opus 4.5": "claude-opus-4-5",
+      "Benchmark - Claude Sonnet 4.6": "claude-sonnet-4-6",
       "Benchmark - Claude Sonnet 4": "claude-sonnet-4",
+      "Benchmark - GPT-5.4": "gpt-5-4",
+      "Benchmark - Gemini 3.1 Pro": "gemini-3-1-pro",
       "Benchmark - GPT-4.1": "gpt-4-1",
       "Benchmark - o3": "o3",
       "Benchmark - Gemini 3 Pro": "gemini-3-pro",

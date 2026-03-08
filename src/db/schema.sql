@@ -76,10 +76,13 @@ CREATE INDEX IF NOT EXISTS idx_model_schedules_model ON model_schedules(model_id
 INSERT OR IGNORE INTO models (id, provider, model_name, display_name, input_price_per_m, output_price_per_m, active)
 VALUES
   ('claude-opus-4-6', 'anthropic', 'claude-opus-4-6-20260205', 'Claude Opus 4.6', 15.00, 75.00, 1),
-  ('claude-opus-4-5', 'anthropic', 'claude-opus-4-5-20251101', 'Claude Opus 4.5', 15.00, 75.00, 1),
-  ('claude-sonnet-4', 'anthropic', 'claude-sonnet-4-20250514', 'Claude Sonnet 4', 3.00, 15.00, 1),
-  ('gpt-4-1', 'openai', 'gpt-4.1', 'GPT-4.1', 2.00, 8.00, 1),
-  ('o3', 'openai', 'o3', 'o3', 2.00, 8.00, 1),
+  ('claude-opus-4-5', 'anthropic', 'claude-opus-4-5-20251101', 'Claude Opus 4.5', 15.00, 75.00, 0),
+  ('claude-sonnet-4-6', 'anthropic', 'claude-sonnet-4-6', 'Claude Sonnet 4.6', 3.00, 15.00, 1),
+  ('claude-sonnet-4', 'anthropic', 'claude-sonnet-4-20250514', 'Claude Sonnet 4.0', 3.00, 15.00, 0),
+  ('gpt-5-4', 'openai', 'gpt-5.4', 'GPT-5.4', 2.50, 15.00, 1),
+  ('gpt-4-1', 'openai', 'gpt-4.1', 'GPT-4.1', 2.00, 8.00, 0),
+  ('o3', 'openai', 'o3', 'o3', 2.00, 8.00, 0),
+  ('gemini-3-1-pro', 'google', 'gemini-3.1-pro-preview', 'Gemini 3 Pro', 2.00, 12.00, 1),
   ('gemini-2-5-pro', 'google', 'gemini-2.5-pro', 'Gemini 2.5 Pro', 4.00, 20.00, 0),
   ('gemini-3-pro', 'google', 'gemini-3-pro-preview', 'Gemini 3 Pro', 2.00, 12.00, 1),
   ('gemini-3-flash', 'google', 'gemini-3-flash-preview', 'Gemini 3 Flash', 0.50, 3.00, 1),
