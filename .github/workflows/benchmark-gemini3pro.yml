@@ -51,7 +51,7 @@ jobs:
       - name: Run benchmark
         env:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          BENCHMARK_MODEL: gemini-3-pro-preview
+          BENCHMARK_MODEL: gemini-3.1-pro-preview
           BENCHMARK_SAMPLE_SIZE: ${{ inputs.sample_size || '100' }}
         run: |
           python scripts/run_benchmark.py \
