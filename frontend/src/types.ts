@@ -6,6 +6,7 @@ export interface Model {
   input_price_per_m: number | null;
   output_price_per_m: number | null;
   active: boolean;
+  featured: boolean;
 }
 
 export interface BenchmarkRun {

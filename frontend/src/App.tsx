@@ -45,9 +45,9 @@ export default function App() {
       setModels(modelsData.models);
       setRuns(runsData.runs);
       setTrends(trendsData.trends);
-      // Default to all active models selected
-      const activeIds = modelsData.models.filter((m: Model) => m.active).map((m: Model) => m.id);
-      setSelectedModelIds(new Set(activeIds));
+      // Default to featured models selected
+      const featuredIds = modelsData.models.filter((m: Model) => m.featured).map((m: Model) => m.id);
+      setSelectedModelIds(new Set(featuredIds));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data');
     } finally {

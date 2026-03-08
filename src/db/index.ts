@@ -13,6 +13,7 @@ export interface Model {
   input_price_per_m: number | null;
   output_price_per_m: number | null;
   active: number;
+  featured: number;
   created_at: string;
 }
 
