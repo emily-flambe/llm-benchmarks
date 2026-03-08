@@ -53,7 +53,7 @@ MODEL_ID_MAP = {
     "o3": "o3",
     "gemini-3-pro-preview": "gemini-3-pro",
     "gemini-3-flash-preview": "gemini-3-flash",
-    "gemini-3.1-pro-preview": "gemini-3-1-pro",
+    "gemini-3.1-pro-preview": "gemini-3-pro",
 }
 
 GOOGLE_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
@@ -88,13 +88,13 @@ class BenchmarkResults:
 def extract_code_from_response(response_text: str) -> str:
     """Extract Python code from model response, handling markdown code blocks."""
     # Try to find ```python ... ``` blocks first
-    # Match ```python or ```py or similar, then capture everything until closing ```
-    python_blocks = re.findall(r"```(?:python|py)\n(.*?)```", response_text, re.DOTALL)
+    # \s* handles optional trailing whitespace/spaces after the language tag (e.g. Gemini adds trailing space)
+    python_blocks = re.findall(r"```(?:python|py)[^\n]*\n(.*?)```", response_text, re.DOTALL)
     if python_blocks:
         return python_blocks[-1].strip()
 
     # Try generic ``` ... ``` blocks (skip any language identifier on first line)
-    generic_blocks = re.findall(r"```\w*\n(.*?)```", response_text, re.DOTALL)
+    generic_blocks = re.findall(r"```[^\n]*\n(.*?)```", response_text, re.DOTALL)
     if generic_blocks:
         return generic_blocks[-1].strip()
 
